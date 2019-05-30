@@ -12,6 +12,7 @@ CXXFLAGS=-O3 -g3 -std=c++14
 .PHONY: all
 all: allcfgs
 
+CFG__hasparam = 
 CFG__hasparam_sc2 = scale=2.0
 
 ###
@@ -39,9 +40,14 @@ endif
 # Detect user-defined generators
 ###
 
-HLGEN_CFGS := $(wildcard *.gen.cpp)
-HLGEN_CFGS := $(HLGEN_CFGS:%.gen.cpp=%) $(filter CFG__%,$(.VARIABLES))
+HLGEN_CFGS := $(filter CFG__%,$(.VARIABLES))
 HLGEN_CFGS := $(HLGEN_CFGS:CFG__%=%)
+
+HLGEN_EXCLUDE := $(foreach CFG,$(HLGEN_CFGS),$(firstword $(subst _, ,$(CFG))))
+
+HLGEN_CFGS := $(HLGEN_CFGS) $(filter-out $(HLGEN_EXCLUDE), $(patsubst %.gen.cpp,%,$(wildcard *.gen.cpp)))
+
+$(info Detected configurations $(HLGEN_CFGS))
 
 .PHONY: allcfgs
 allcfgs: $(addprefix run_, $(HLGEN_CFGS))
