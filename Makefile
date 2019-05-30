@@ -53,9 +53,10 @@ HLGEN_CFGS := $(sort $(HLGEN_CFGS) $(filter-out $(HLGEN_EXCLUDE), $(patsubst %.g
 
 HLGEN_GENS := $(sort $(foreach O,$(HLGEN_CFGS),$(call get_gen_name, $(O))))
 
-ifneq ($(addsuffix .gen.cpp, $(HLGEN_GENS)),$(sort $(wildcard *.gen.cpp)))
+HLGEN_MISSING := $(filter-out $(wildcard *.gen.cpp), $(HLGEN_GENS:=.gen.cpp))
+ifneq (,$(HLGEN_MISSING))
 $(warning Detected configurations: $(HLGEN_CFGS))
-$(error Missing .gen.cpp for one of: $(HLGEN_GENS))
+$(error Missing .gen.cpp for generators: $(HLGEN_MISSING))
 endif
 
 .PHONY: allcfgs
