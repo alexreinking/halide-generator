@@ -9,7 +9,8 @@ CXXFLAGS=-O3 -g3 -std=c++14
 # Configure generators
 ###
 
-all: run_hello
+.PHONY: all
+all: allcfgs
 
 CFG__hasparam_sc2 = scale=2.0
 
@@ -33,6 +34,17 @@ $(warning Environment variable HALIDE_DISTRIB_PATH not set)
 endif
 $(error No Halide installation found at $(HALIDE_DISTRIB_PATH))
 endif
+
+###
+# Detect user-defined generators
+###
+
+HLGEN_CFGS := $(wildcard *.gen.cpp)
+HLGEN_CFGS := $(HLGEN_CFGS:%.gen.cpp=%) $(filter CFG__%,$(.VARIABLES))
+HLGEN_CFGS := $(HLGEN_CFGS:CFG__%=%)
+
+.PHONY: allcfgs
+allcfgs: $(addprefix run_, $(HLGEN_CFGS))
 
 ###
 # Generator targets
