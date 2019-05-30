@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Union, Dict, Optional, List
 
-from logging import warn
+from src.logging import warn
 
 
 class Project(object):
