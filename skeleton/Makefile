@@ -30,7 +30,7 @@ all: allcfgs
 # 
 #   CFG__GEN = 
 #
-# where the value is CFG__GEN is intentionally left blank.
+# where the value in CFG__GEN is intentionally left blank.
 
 ###
 # Include common support Makefile

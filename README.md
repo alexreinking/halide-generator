@@ -21,7 +21,7 @@ Feel free to contribute, though I'm rapidly bringing this to alpha.
 
 Here's the quickest way to see how `hlgen` works: 
 
-    $ hlgen.py create project my_project
+    $ hlgen create project my_project
     $ cd my_project
     $ ls
     Makefile  my_project.gen.cpp
