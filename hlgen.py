@@ -5,29 +5,63 @@ import glob
 import os
 import re
 import sys
-from collections import defaultdict
 from pathlib import Path
+from typing import Dict, List, Union
 
 TOOL_DIR = Path(os.path.dirname(os.path.realpath(__file__)))
 PROJ_DIR = Path(os.path.realpath(os.getcwd()))
 
 
-class CfgLine(object):
-    def __init__(self, cfg):
+class BuildConfig(object):
+    def __init__(self, generator, config_name, value, *, source=None):
+        self.gen = generator or ''
+        self.subcfg = config_name or ''
+        self.val = value or ''
+        self.orig = source
+
+    @staticmethod
+    def from_makefile(cfg):
         # Is there a way to do this without lazy groups?
         m = re.match(r'^CFG__(\w+?)(?:\s|__(\w+)?).*?=\s*(.*?)\s*$', cfg)
-        self.gen, self.subcfg, self.val = m.group(1, 2, 3)
-        self.gen = self.gen or ''
-        self.subcfg = self.subcfg or ''
-        self.val = self.val or ''
-        self.orig = cfg
+        generator, config_name, value = m.group(1, 2, 3)
+        return BuildConfig(generator, config_name, value, source=cfg)
 
     def __repr__(self):
-        return f'({self.gen}, {self.subcfg}) = {self.val} [{self.orig}]'
+        return f'({self.gen}, {self.subcfg}) = {self.val} [{self.orig or "(none)"}]'
+
+
+def parse_config_lines(cfg_window):
+    gen_to_cfgs: Dict[str, Dict[str, BuildConfig]] = {}
+    invalid: List[BuildConfig] = []
+
+    for gen in glob.glob(str(PROJ_DIR / '*.gen.cpp')):
+        gen = os.path.basename(gen).rstrip('.gen.cpp')
+        gen_to_cfgs[gen] = {}
+
+    for source_line in cfg_window:
+        source_line = source_line.strip()
+        if not source_line:
+            continue
+
+        config = BuildConfig.from_makefile(source_line)
+        if config.gen in gen_to_cfgs:
+            if config.subcfg in gen_to_cfgs[config.gen]:
+                warn(f'Generator {config.gen} has duplicate configuration {config.subcfg}')
+                invalid.append(gen_to_cfgs[config.gen][config.subcfg])
+            gen_to_cfgs[config.gen][config.subcfg] = config
+        else:
+            warn(f'Generator {config.gen} appears in Makefile but has no corresponding .gen.cpp')
+            invalid.append(config)
+
+    for gen, configs in gen_to_cfgs.items():
+        if not configs:
+            configs[''] = BuildConfig(gen, '', '')
+
+    return gen_to_cfgs, invalid
 
 
 class ProjectMakefile(object):
-    def __init__(self, path):
+    def __init__(self, path: Union[Path, str]):
         if isinstance(path, str):
             path = Path(path)
         self.path = path
@@ -35,12 +69,19 @@ class ProjectMakefile(object):
         with open(path, 'r') as f:
             self._lines = f.readlines()
 
-        self._compute_landmarks()
+        self._compute_landmarks(self._lines)
+        self._gens, self._invalid = parse_config_lines(self._lines[self.cfg_start:self.cfg_end])
 
-    def _compute_landmarks(self):
-        n_lines = len(self._lines)
+    def lines(self):
+        return self._lines
 
-        enum_lines = list(enumerate(self._lines))
+    def get_generators(self):
+        return self._gens, self._invalid
+
+    def _compute_landmarks(self, lines):
+        n_lines = len(lines)
+
+        enum_lines = list(enumerate(lines))
 
         # Try to find the skeleton's landmark comment
         comment_line = next((i for i, line in enum_lines
@@ -60,53 +101,12 @@ class ProjectMakefile(object):
                         if line.strip() and not line.strip().startswith('CFG__')), n_lines)
 
         # chop trailing blank lines
-        cfg_end -= next((i for i, line in enumerate(self._lines[cfg_start:cfg_end][::-1])
+        cfg_end -= next((i for i, line in enumerate(lines[cfg_start:cfg_end][::-1])
                          if line.strip()), 0)
 
         self.after_comment = after_comment
         self.cfg_start = cfg_start
         self.cfg_end = cfg_end
-
-    def lines(self):
-        return self._lines
-
-    def _parse_generators(self):
-        gen_to_cfgs = {}
-        invalid = []
-
-        for gen in glob.glob(str(PROJ_DIR / '*.gen.cpp')):
-            gen = os.path.basename(gen).rstrip('.gen.cpp')
-            gen_to_cfgs[gen] = defaultdict(dict)
-
-        for cfg in self._lines[self.cfg_start:self.cfg_end]:
-            cfg = cfg.strip()
-            if not cfg:
-                continue
-
-            line = CfgLine(cfg)
-            if line.gen in gen_to_cfgs:
-                if line.subcfg in gen_to_cfgs[line.gen]:
-                    warn(f'Generator {line.gen} has duplicate configuration {line.subcfg}')
-                    invalid.append(gen_to_cfgs[line.gen][line.subcfg])
-                gen_to_cfgs[line.gen][line.subcfg] = line
-            else:
-                warn(f'Generator {line.gen} appears in Makefile but has no corresponding .gen.cpp')
-                invalid.append(line)
-
-        for gen_table in gen_to_cfgs.values():
-            if not gen_table:
-                gen_table[''] = None
-
-        return gen_to_cfgs, invalid
-
-    def get_generators(self):
-        return self._parse_generators()
-
-    def _insertion_point(self):
-        n_lines = len(self._lines)
-        if self.cfg_start < self.cfg_end and self.cfg_start < n_lines:
-            return self.cfg_start
-        return min(self.after_comment, n_lines)
 
 
 def warn(msg):
@@ -239,7 +239,6 @@ The available hlgen commands are:
 
         for gen in gens:
             table = Table()
-            print(gens[gen])
             for cfg in gens[gen].values():
                 table.add_row(gen, cfg.subcfg or '(default)', cfg.val)
             print(table)
