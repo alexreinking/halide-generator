@@ -5,10 +5,12 @@ import ast
 import os
 import re
 import sys
-import warnings 
 
 TOOL_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJ_DIR = os.path.realpath(os.getcwd())
+
+def warn(msg):
+    print(f'WARNING: {msg}', file=sys.stderr)
 
 def expand_template(template, env=None, **kwargs):
     if not env:
@@ -104,7 +106,7 @@ The available hlgen commands are:
         args = parser.parse_args(argv)
         
         if os.path.isdir(args.project_name):
-            warnings.warn('project directory already exists!', Warning)
+            warn('project directory already exists!')
             sys.exit(1)
 
         os.mkdir(args.project_name)

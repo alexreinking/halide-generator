@@ -1,7 +1,7 @@
 #include <Halide.h>
 using namespace Halide;
 
-class ${NAME} : public Generator<${NAME}>
+class ${NAME.title()} : public Generator<${NAME.title()}>
 {
 public:
 	Input<Buffer<float>> input{"input", 2};
@@ -17,4 +17,4 @@ public:
 	}
 };
 
-HALIDE_REGISTER_GENERATOR(${NAME}, ${NAME.lower()})
+HALIDE_REGISTER_GENERATOR(${NAME.title()}, ${NAME.lower()})
