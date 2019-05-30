@@ -3,3 +3,4 @@ kernels/
 run_*
 *.swp
 .idea/
+__pycache__/

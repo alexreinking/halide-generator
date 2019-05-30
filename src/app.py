@@ -9,7 +9,7 @@ from src.formatting import Table, expand_template
 from src.logging import warn
 from src.project import Project, BuildConfig
 
-TOOL_DIR = Path(os.path.dirname(os.path.realpath(__file__)))
+TOOL_DIR = Path(os.path.dirname(os.path.realpath(os.path.join(__file__, '..'))))
 
 
 class HLGen(object):
