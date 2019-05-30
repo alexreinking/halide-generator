@@ -2,11 +2,12 @@
 import argparse
 import ast
 import glob
+import itertools
 import os
 import re
 import sys
 from pathlib import Path
-from typing import Union
+from typing import Union, List
 
 TOOL_DIR = Path(os.path.dirname(os.path.realpath(__file__)))
 PROJ_DIR = Path(os.path.realpath(os.getcwd()))
@@ -286,14 +287,21 @@ The available hlgen commands are:
     def list(self, argv):
         project = self._open_project()
         configurations, invalid = project.get_generators()
+        configurations: List[BuildConfig] = configurations
+        configurations.sort(key=lambda cfg: (cfg.generator, cfg.config_name))
 
         table = Table()
         table.set_headers('Generator', 'Configuration', 'Parameters')
 
-        for config in configurations:
-            table.add_row(config.generator,
-                          config.config_name or '(default)',
-                          config.params or '(default)')
+        pad = False
+        for generator, confs in itertools.groupby(configurations, key=lambda x: x.generator):
+            if pad:
+                table.add_row()
+            for config in confs:
+                table.add_row(config.generator,
+                              config.config_name or '(default)',
+                              config.params or '(default)')
+            pad = True
         print(table)
 
     def create(self, argv):
