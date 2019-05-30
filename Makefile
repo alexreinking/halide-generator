@@ -65,6 +65,11 @@ $(HLGEN_KERNEL_PATH)/%.html \
 $(HLGEN_KERNEL_PATH)/%.registration.cpp: $(HLGEN_EXE) | $(HLGEN_KERNEL_PATH)
 	./$< -g $* -e static_library,h,stmt,html,registration -o $(HLGEN_KERNEL_PATH) target=$(HL_TARGET)
 
+.PHONY: _hl_generate_target
+_hl_generate_target:
+
+generate_%: $(HLGEN_KERNEL_PATH)/%.a _hl_generate_target ;
+
 ###
 # Standalone runner targets
 ###
