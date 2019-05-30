@@ -13,7 +13,7 @@ all: allcfgs
 ###
 
 CFG__hasparam = 
-CFG__hasparam_sc2 = scale=2.0
+CFG__hasparam__sc2 = scale=2.0
 
 ###
 # Include common support Makefile
