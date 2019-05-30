@@ -1,307 +1,16 @@
 #!/usr/bin/env python3
 import argparse
-import ast
-import glob
 import itertools
 import os
-import re
 import sys
-from collections import defaultdict
 from pathlib import Path
-from typing import Union, List, DefaultDict, Dict
+from typing import List
+
+from logging import warn
+from src.formatting import expand_template, Table
+from src.project import Project, BuildConfig
 
 TOOL_DIR = Path(os.path.dirname(os.path.realpath(__file__)))
-PROJ_DIR = Path(os.path.realpath(os.getcwd()))
-
-
-class BuildConfig(object):
-    def __init__(self, generator, config_name, value, *, source=None, lineno=-1):
-        self.generator = generator or ''
-        self.config_name = config_name or ''
-        self.params = value or ''
-        self.source = source
-        self.lineno = lineno
-
-    @staticmethod
-    def from_makefile(source, lineno):
-        # Is there a way to do this without lazy groups?
-        m = re.match(r'^CFG__(\w+?)(?:\s|__(\w+)?).*?=\s*(.*?)\s*$', source)
-        if not m:
-            return None
-        return BuildConfig(*m.group(1, 2, 3), source=source, lineno=lineno)
-
-    def __repr__(self):
-        return str(self)
-
-    def __str__(self):
-        return self._render().rstrip() + '\n'
-
-    def _render(self):
-        if self.source:
-            return self.source
-        suffix = '' if not self.config_name else f'__{self.config_name}'
-        return f'CFG__{self.generator}{suffix} = {self.params}'
-
-
-class ProjectMakefile(object):
-    def __init__(self, path: Union[Path, str]):
-        if isinstance(path, str):
-            path = Path(path)
-        self.path = path
-
-        with open(path, 'r') as f:
-            self._lines = f.readlines()
-
-        self._gens, self._invalid = self._parse_makefile()
-
-    def lines(self):
-        return self._lines
-
-    def get_generators(self):
-        return self._gens, self._invalid
-
-    def _parse_makefile(self):
-        saw_generator_comment = False
-        num_lines = len(self._lines)
-        after_comment = num_lines
-        cfg_start = num_lines
-        cfg_end = num_lines
-
-        configurations = []
-        invalid_configurations = []
-        generator2configs = {}
-
-        # Create table for all the valid generators
-        for gen in glob.glob(str(PROJ_DIR / '*.gen.cpp')):
-            gen = os.path.basename(gen).rstrip('.gen.cpp')
-            generator2configs[gen] = {}
-
-        last_cfg = num_lines
-
-        # Populate table with configurations from makefile
-        for i, line in enumerate(self._lines):
-            if not line.strip():
-                if saw_generator_comment and after_comment == num_lines:
-                    after_comment = i
-                continue
-
-            if line.startswith('# Configure generators'):
-                saw_generator_comment = True
-            if saw_generator_comment and after_comment == num_lines and not line.strip().startswith('#'):
-                after_comment = i
-
-            config = BuildConfig.from_makefile(line, i)
-            if cfg_start == num_lines and config:
-                cfg_start = i
-
-            if cfg_end == num_lines and config:
-                if config.generator not in generator2configs:
-                    warn(f'invalid configuration specified for {config.generator} in Makefile:{i + 1}')
-                    invalid_configurations.append(config)
-                else:
-                    if config.config_name in generator2configs[config.generator]:
-                        warn(f'using overriding configuration for {config.generator} from Makefile:{i + 1}')
-                        old_config = generator2configs[config.generator][config.config_name]
-                        configurations.remove(old_config)
-                        invalid_configurations.append(old_config)
-                    generator2configs[config.generator][config.config_name] = config
-                    configurations.append(config)
-                last_cfg = i
-
-            if cfg_start < num_lines and cfg_end == num_lines and not config:
-                cfg_end = last_cfg + 1
-
-        # If any generators didn't appear in the makefile, they get default configurations inferred
-        for gen in generator2configs:
-            if not generator2configs[gen]:
-                generator2configs[gen][''] = BuildConfig(gen, '', '')
-                configurations.append(BuildConfig(gen, '', ''))
-
-        self._index: DefaultDict[str, Dict[str, BuildConfig]] = defaultdict(dict)
-        for config in configurations:
-            self._index[config.generator][config.config_name] = config
-
-        self.after_comment = after_comment
-        self.cfg_start = cfg_start
-        self.cfg_end = cfg_end
-
-        return configurations, invalid_configurations
-
-    def has_generator(self, name):
-        return name in self._index
-
-    def add_generator(self, name):
-        if self.has_generator(name):
-            raise ValueError('cannot add a new generator when one already exists')
-        self._index[name][''] = BuildConfig(name, '', '')
-
-    def save(self):
-        with open(self.path, 'w') as f:
-            f.writelines(self._lines)
-
-    def add_configuration(self, gen, name, params):
-        if name in self._index[gen]:
-            raise ValueError('use update_configuration to update in place (without rearranging makefile)')
-        config = BuildConfig(gen, name, params)
-        self._gens.append(config)
-        self._index[gen][name] = config
-        self._regenerate()
-
-    def _regenerate(self):
-        if self.cfg_start < len(self._lines):
-            cfg_start = self.cfg_start
-            cfg_end = self.cfg_end
-        elif self.after_comment < len(self._lines):
-            cfg_start = self.after_comment
-            cfg_end = self.after_comment
-        else:
-            cfg_start = cfg_end = len(self._lines)
-
-        prefix = self._lines[:cfg_start]
-        suffix = self._lines[cfg_end:]
-
-        cfgs = []
-        for gen, gen_cfgs in self._index.items():
-            # when the only entry is the default one, don't put it in the makefile
-            if len(gen_cfgs) == 1 and '' in gen_cfgs and not gen_cfgs[''].params:
-                continue
-            cfgs.extend(map(str, gen_cfgs.values()))
-
-        self._lines = prefix + cfgs + suffix
-        self._parse_makefile()
-
-
-def warn(msg):
-    print(f'WARNING: {msg}', file=sys.stderr)
-
-
-def expand_template(template, env=None, **kwargs):
-    if not env:
-        env = dict()
-    env = {k.lower(): v for k, v in env.items()}
-    env.update({k.lower(): v for k, v in kwargs.items()})
-
-    funs = {}
-
-    def get_names(expr):
-        names = set()
-        for node in ast.walk(expr):
-            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
-                node.id = node.id.lower()
-                names.add(node.id)
-        return list(names)
-
-    def mkfun(expression):
-        key = ast.dump(expression)
-        if key in funs:
-            return funs[key]
-
-        names = get_names(expression)
-        body = expression.body
-
-        args = [ast.arg(arg=name, annotation=None) for name in names]
-        body = ast.Lambda(
-            ast.arguments(args=args, defaults=[], kwonlyargs=[], kw_defaults=[]),
-            body)
-
-        expression.body = body
-        ast.fix_missing_locations(expression)
-
-        f = compile(expression, filename="<ast>", mode='eval')
-        value = (eval(f), names)
-        funs[key] = value
-        return value
-
-    def expand(src):
-        ex = ast.parse(src, mode='eval')
-        if not isinstance(ex, ast.Expression):
-            return ''
-        f, names = mkfun(ex)
-        args = [str(env.get(name)) or '' for name in names]
-        return f(*args)
-
-    # TODO: do something smarter here for matching { }
-    return re.sub(r'\${([^}]+)}', lambda m: expand(m.group(1)), template)
-
-
-def get_halide_directory():
-    hldir = os.environ.get('HALIDE_DISTRIB_PATH')
-    if not hldir:
-        hldir = '/opt/halide'
-    return os.path.realpath(hldir) if os.path.isdir(hldir) else None
-
-
-class Table(object):
-    def __init__(self, *, width=0, colpadding=1, show_row_numbers=False):
-        self.width = width
-        self.sizes = [0] * width
-        self.rows = []
-        self.colpadding = colpadding
-        self.headers = []
-        self.show_row_numbers = show_row_numbers
-
-    def add_row(self, *args):
-        try:
-            self._ensure_width(args)
-            self._update_sizes(args)
-            self.rows.append(tuple(args))
-        except ValueError:
-            if args:
-                raise
-            self.rows.append(tuple([''] * self.width))
-
-    def _update_sizes(self, args):
-        self.sizes = list(map(max, zip(self.sizes, map(len, args))))
-
-    def _ensure_width(self, args):
-        if not self.width:
-            self.width = len(args)
-            self.sizes = [0] * self.width
-        if len(args) != self.width:
-            raise ValueError('arguments list not the same width')
-
-    def _format_row(self, args, sizes):
-        gutter = ' ' * self.colpadding
-        template = ['{:<{}}'] * len(args)
-        template = (gutter + '|' + gutter).join(template)
-        fmtargs = zip(args, sizes)
-        return template.format(*[x for y in fmtargs for x in y])
-
-    def _format_rule(self, sizes):
-        line_width = len(self._format_row([''] * len(sizes), sizes))
-        rule = ['-'] * line_width
-        i = 0
-        for j in sizes[:-1]:
-            i += j + self.colpadding
-            rule[i] = '+'
-            i += 1 + self.colpadding
-        return ''.join(rule)
-
-    def __str__(self):
-        output = ''
-        sizes = self.sizes
-        if self.show_row_numbers:
-            sizes = [len(str(len(self.rows)))] + sizes
-
-        if self.headers:
-            headers = self.headers
-            if self.show_row_numbers:
-                headers = [''] + headers
-            output += self._format_row(headers, sizes) + '\n'
-            output += self._format_rule(sizes) + '\n'
-
-        for i, row in enumerate(self.rows):
-            if self.show_row_numbers:
-                row = [i] + list(row)
-            output += self._format_row(row, sizes) + '\n'
-
-        return output.rstrip()
-
-    def set_headers(self, *args):
-        args = list(args)
-        self._ensure_width(args)
-        self._update_sizes(args)
-        self.headers = args
 
 
 class HLGen(object):
@@ -324,16 +33,9 @@ The available hlgen commands are:
 
         getattr(self, args.command)(sys.argv[2:])
 
-    @staticmethod
-    def _open_project():
-        if not (PROJ_DIR / 'Makefile').exists():
-            warn('There is no makefile in this directory. Are you sure you are in a project folder?')
-            sys.exit(1)
-        return ProjectMakefile(PROJ_DIR / 'Makefile')
-
     def list(self, argv):
-        project = self._open_project()
-        configurations, invalid = project.get_generators()
+        makefile = Project().get_makefile()
+        configurations, invalid = makefile.get_generators()
         configurations: List[BuildConfig] = configurations
         configurations.sort(key=lambda cfg: (cfg.generator, cfg.config_name))
 
@@ -375,14 +77,14 @@ The new configuration will be compiled as <gen>__<name>.{a,h,so,etc.}
 
         args, generator_params = parser.parse_known_args(argv)
 
-        project = self._open_project()
+        makefile = Project().get_makefile()
 
-        if not project.has_generator(args.gen):
+        if not makefile.has_generator(args.gen):
             warn(f'no generator named {args.gen} exists!')
             sys.exit(1)
 
-        project.add_configuration(args.gen, args.name, ' '.join(generator_params))
-        project.save()
+        makefile.add_configuration(args.gen, args.name, ' '.join(generator_params))
+        makefile.save()
 
     def create_generator(self, argv):
         parser = argparse.ArgumentParser(
@@ -392,16 +94,19 @@ The new configuration will be compiled as <gen>__<name>.{a,h,so,etc.}
                             help='The name of the generator. This will also be the name of the source file created.')
 
         args = parser.parse_args(argv)
-        project = self._open_project()
+        project = Project()
+        makefile = project.get_makefile()
 
-        if project.has_generator(args.name):
+        if makefile.has_generator(args.name):
             warn(f'generator {args.name} already exists!')
             sys.exit(1)
 
-        project.add_generator(args.name)
-        self.copy_from_skeleton(Path('${NAME}.gen.cpp'), {'_HLGEN_BASE': TOOL_DIR,
-                                                          'NAME': args.name})
-        project.save()
+        makefile.add_generator(args.name)
+        self.copy_from_skeleton(
+            project,
+            Path('${NAME}.gen.cpp'),
+            {'_HLGEN_BASE': TOOL_DIR, 'NAME': args.name})
+        makefile.save()
 
     def create_project(self, argv):
         parser = argparse.ArgumentParser(
@@ -418,17 +123,16 @@ The new configuration will be compiled as <gen>__<name>.{a,h,so,etc.}
 
         os.mkdir(args.name)
 
-        global PROJ_DIR
-        PROJ_DIR = Path(os.path.realpath(args.name))
+        project = Project(os.path.realpath(args.name))
 
         env = {'_HLGEN_BASE': TOOL_DIR,
                'NAME': args.name}
 
-        self.init_from_skeleton(env)
+        self.init_from_skeleton(project, env)
 
-    def copy_from_skeleton(self, relative, env):
+    def copy_from_skeleton(self, project, relative, env):
         skel_file = TOOL_DIR / 'skeleton' / relative
-        proj_file = PROJ_DIR / relative
+        proj_file = project.root / relative
 
         with open(skel_file, 'r') as f:
             content = expand_template(f.read(), env)
@@ -437,14 +141,14 @@ The new configuration will be compiled as <gen>__<name>.{a,h,so,etc.}
         with open(proj_file, 'w') as f:
             f.write(content)
 
-    def init_from_skeleton(self, env):
+    def init_from_skeleton(self, project, env):
         skeleton_path = TOOL_DIR / 'skeleton'
         for root, _, files in os.walk(skeleton_path):
             relative = Path(root).relative_to(skeleton_path)
 
-            os.makedirs(PROJ_DIR / relative, exist_ok=True)
+            os.makedirs(project.root / relative, exist_ok=True)
             for file_name in files:
-                self.copy_from_skeleton(relative / file_name, env)
+                self.copy_from_skeleton(project, relative / file_name, env)
 
 
 if __name__ == '__main__':

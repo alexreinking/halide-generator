@@ -2,3 +2,4 @@
 kernels/
 run_*
 *.swp
+.idea/
