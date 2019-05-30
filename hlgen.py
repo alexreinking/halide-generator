@@ -110,8 +110,6 @@ class ProjectMakefile(object):
         self.cfg_start = cfg_start
         self.cfg_end = cfg_end
 
-        print(after_comment + 1, cfg_start + 1, cfg_end + 1)
-
         return configurations, invalid_configurations
 
 
@@ -176,35 +174,76 @@ def get_halide_directory():
 
 
 class Table(object):
-    def __init__(self, width=0, colpadding=1):
+    def __init__(self, *, width=0, colpadding=1, show_row_numbers=False):
         self.width = width
         self.sizes = [0] * width
         self.rows = []
         self.colpadding = colpadding
+        self.headers = []
+        self.show_row_numbers = show_row_numbers
 
     def add_row(self, *args):
+        try:
+            self._ensure_width(args)
+            self._update_sizes(args)
+            self.rows.append(tuple(args))
+        except ValueError:
+            if args:
+                raise
+            self.rows.append(tuple([''] * self.width))
+
+    def _update_sizes(self, args):
+        self.sizes = list(map(max, zip(self.sizes, map(len, args))))
+
+    def _ensure_width(self, args):
         if not self.width:
             self.width = len(args)
             self.sizes = [0] * self.width
-        if len(args) == 0:
-            self.rows.append(tuple([''] * self.width))
-            return
         if len(args) != self.width:
             raise ValueError('arguments list not the same width')
-        self.sizes = list(map(max, zip(self.sizes, map(len, args))))
-        self.rows.append(tuple(args))
+
+    def _format_row(self, args, sizes):
+        gutter = ' ' * self.colpadding
+        template = ['{:<{}}'] * len(args)
+        template = (gutter + '|' + gutter).join(template)
+        fmtargs = zip(args, sizes)
+        return template.format(*[x for y in fmtargs for x in y])
+
+    def _format_rule(self, sizes):
+        line_width = len(self._format_row([''] * len(sizes), sizes))
+        rule = ['-'] * line_width
+        i = 0
+        for j in sizes[:-1]:
+            i += j + self.colpadding
+            rule[i] = '+'
+            i += 1 + self.colpadding
+        return ''.join(rule)
 
     def __str__(self):
-        gutter = ' ' * self.colpadding
-
-        template = ['{:<{}}'] * self.width
-        template = (gutter + '|' + gutter).join(template)
-
         output = ''
-        for row in self.rows:
-            fmtargs = zip(row, self.sizes)
-            output += template.format(*[x for y in fmtargs for x in y]) + '\n'
-        return output
+        sizes = self.sizes
+        if self.show_row_numbers:
+            sizes = [len(str(len(self.rows)))] + sizes
+
+        if self.headers:
+            headers = self.headers
+            if self.show_row_numbers:
+                headers = [''] + headers
+            output += self._format_row(headers, sizes) + '\n'
+            output += self._format_rule(sizes) + '\n'
+
+        for i, row in enumerate(self.rows):
+            if self.show_row_numbers:
+                row = [i] + list(row)
+            output += self._format_row(row, sizes) + '\n'
+
+        return output.rstrip()
+
+    def set_headers(self, *args):
+        args = list(args)
+        self._ensure_width(args)
+        self._update_sizes(args)
+        self.headers = args
 
 
 class HLGen(object):
@@ -238,6 +277,8 @@ The available hlgen commands are:
         configurations, invalid = project.get_generators()
 
         table = Table()
+        table.set_headers('Generator', 'Configuration', 'Value')
+
         for config in configurations:
             table.add_row(config.gen,
                           config.subcfg or '(default)',
