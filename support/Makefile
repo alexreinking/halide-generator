@@ -26,7 +26,7 @@ endif
 # Helper functions
 ###
 
-get_gen_name = $(firstword $(subst _, ,$(1)))
+get_gen_name = $(firstword $(subst __, ,$(1)))
 
 ###
 # Detect user-defined generators
