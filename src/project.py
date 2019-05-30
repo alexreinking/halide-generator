@@ -1,9 +1,8 @@
 import glob
 import os
 import re
-from collections import defaultdict
 from pathlib import Path
-from typing import Union, DefaultDict, Dict, Optional
+from typing import Union, Dict, Optional, List
 
 from logging import warn
 
@@ -57,16 +56,35 @@ class ProjectMakefile(object):
         with open(str(self.path), 'r') as f:
             self._lines = f.readlines()
 
-        self._gens, self._invalid = self._parse_makefile()
+        self.after_comment = len(self._lines)
+        self.cfg_start = len(self._lines)
+        self.cfg_end = len(self._lines)
+        self._index: Dict[str, Dict[str, BuildConfig]] = {}
 
-    def lines(self):
-        return self._lines
+        self.current_configurations = []
+        self.invalid_configurations = []
+        self._regenerate()
 
     def get_generators(self):
-        return self._gens, self._invalid
+        return self.current_configurations, self.invalid_configurations
+
+    def _regenerate(self):
+        cfgs = self._linearize_index()
+        new_cfg_lines = [str(x).rstrip() + '\n'
+                         for grp in self.interpose(cfgs, [''])
+                         for x in grp]
+
+        if self.cfg_start == self.cfg_end:
+            prefix = self._lines[:self.after_comment]
+            suffix = self._lines[self.after_comment:]
+        else:
+            prefix = self._lines[:self.cfg_start]
+            suffix = self._lines[self.cfg_end:]
+
+        self._lines = prefix + new_cfg_lines + suffix
+        self._parse_makefile()
 
     def _parse_makefile(self):
-        saw_generator_comment = False
         num_lines = len(self._lines)
         after_comment = num_lines
         cfg_start = num_lines
@@ -84,34 +102,35 @@ class ProjectMakefile(object):
         last_cfg = num_lines
 
         # Populate table with configurations from makefile
-        for i, line in enumerate(self._lines):
+        saw_generator_comment = False
+        for line_idx, line in enumerate(self._lines):
             if not line.strip():
                 if saw_generator_comment and after_comment == num_lines:
-                    after_comment = i
+                    after_comment = line_idx
                 continue
 
             if line.startswith('# Configure generators'):
                 saw_generator_comment = True
             if saw_generator_comment and after_comment == num_lines and not line.strip().startswith('#'):
-                after_comment = i
+                after_comment = line_idx
 
-            config = BuildConfig.from_makefile(line, i)
+            config = BuildConfig.from_makefile(line, line_idx)
             if cfg_start == num_lines and config:
-                cfg_start = i
+                cfg_start = line_idx
 
             if cfg_end == num_lines and config:
                 if config.generator not in generator2configs:
-                    warn(f'invalid configuration specified for {config.generator} in Makefile:{i + 1}')
+                    warn(f'invalid configuration specified for {config.generator} in Makefile:{line_idx + 1}')
                     invalid_configurations.append(config)
                 else:
                     if config.config_name in generator2configs[config.generator]:
-                        warn(f'using overriding configuration for {config.generator} from Makefile:{i + 1}')
+                        warn(f'using overriding configuration for {config.generator} from Makefile:{line_idx + 1}')
                         old_config = generator2configs[config.generator][config.config_name]
                         configurations.remove(old_config)
                         invalid_configurations.append(old_config)
                     generator2configs[config.generator][config.config_name] = config
                     configurations.append(config)
-                last_cfg = i
+                last_cfg = line_idx
 
             if cfg_start < num_lines and cfg_end == num_lines and not config:
                 cfg_end = last_cfg + 1
@@ -122,15 +141,12 @@ class ProjectMakefile(object):
                 generator2configs[gen][''] = BuildConfig(gen, '', '')
                 configurations.append(BuildConfig(gen, '', ''))
 
-        self._index: DefaultDict[str, Dict[str, BuildConfig]] = defaultdict(dict)
-        for config in configurations:
-            self._index[config.generator][config.config_name] = config
-
+        self._index = generator2configs
         self.after_comment = after_comment
         self.cfg_start = cfg_start
         self.cfg_end = cfg_end
-
-        return configurations, invalid_configurations
+        self.current_configurations = configurations
+        self.invalid_configurations = invalid_configurations
 
     def has_generator(self, name):
         return name in self._index
@@ -148,29 +164,25 @@ class ProjectMakefile(object):
         if name in self._index[gen]:
             raise ValueError('use update_configuration to update in place (without rearranging makefile)')
         config = BuildConfig(gen, name, params)
-        self._gens.append(config)
+        self.current_configurations.append(config)
         self._index[gen][name] = config
         self._regenerate()
 
-    def _regenerate(self):
-        if self.cfg_start < len(self._lines):
-            cfg_start = self.cfg_start
-            cfg_end = self.cfg_end
-        elif self.after_comment < len(self._lines):
-            cfg_start = self.after_comment
-            cfg_end = self.after_comment
-        else:
-            cfg_start = cfg_end = len(self._lines)
+    @staticmethod
+    def interpose(it, x):
+        past_start = False
+        for i in it:
+            if past_start:
+                yield x
+            yield i
+            past_start = True
 
-        prefix = self._lines[:cfg_start]
-        suffix = self._lines[cfg_end:]
-
+    def _linearize_index(self) -> List[List[BuildConfig]]:
         cfgs = []
         for gen, gen_cfgs in self._index.items():
             # when the only entry is the default one, don't put it in the makefile
             if len(gen_cfgs) == 1 and '' in gen_cfgs and not gen_cfgs[''].params:
                 continue
-            cfgs.extend(map(str, gen_cfgs.values()))
-
-        self._lines = prefix + cfgs + suffix
-        self._parse_makefile()
+            cfgs.append(list(sorted(gen_cfgs.values(), key=lambda cfg: cfg.config_name)))
+        cfgs.sort(key=lambda grp: grp[0].generator)
+        return cfgs
