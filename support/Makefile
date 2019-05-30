@@ -1,21 +1,4 @@
 ###
-# Global settings
-###
-
-CXX=g++
-CXXFLAGS=-O3 -g3 -std=c++14
-
-###
-# Configure generators
-###
-
-.PHONY: all
-all: allcfgs
-
-CFG__hasparam = 
-CFG__hasparam_sc2 = scale=2.0
-
-###
 # Halide configuration options
 ###
 
