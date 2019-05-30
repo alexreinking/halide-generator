@@ -11,6 +11,8 @@ CXXFLAGS=-O3 -g3 -std=c++14
 
 all: run_hello
 
+CFG__hasparam_sc2 = scale=2.0
+
 ###
 # Halide configuration options
 ###
@@ -50,7 +52,7 @@ $(HLGEN_KERNEL_PATH): ; mkdir $@
 
 .PRECIOUS: $(HLGEN_PCH)
 $(HLGEN_PCH): $(HALIDE_DISTRIB_PATH)/include/Halide.h | $(HLGEN_KERNEL_PATH)
-	echo "#include \"$<\"" > $(HLGEN_PCH)
+	$(file >$@,#include "$<")
 	$(CXX) $@ -o $@.gch -I "$(HALIDE_DISTRIB_PATH)/include" $(HLGEN_CXXFLAGS)
 
 .PRECIOUS: $(HLGEN_EXE)
@@ -63,7 +65,8 @@ $(HLGEN_KERNEL_PATH)/%.h \
 $(HLGEN_KERNEL_PATH)/%.stmt \
 $(HLGEN_KERNEL_PATH)/%.html \
 $(HLGEN_KERNEL_PATH)/%.registration.cpp: $(HLGEN_EXE) | $(HLGEN_KERNEL_PATH)
-	./$< -g $* -e static_library,h,stmt,html,registration -o $(HLGEN_KERNEL_PATH) target=$(HL_TARGET)
+	$(eval GENNAME := $(if $(CFG__$*),$(firstword $(subst _, , $*)),$*))
+	./$< -g $(GENNAME) -e static_library,h,stmt,html,registration -n $* -o $(HLGEN_KERNEL_PATH) target=$(HL_TARGET) $(CFG__$*)
 
 .PHONY: _hl_generate_target
 _hl_generate_target:
