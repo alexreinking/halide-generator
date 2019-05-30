@@ -37,13 +37,19 @@ $(error No Halide installation found at $(HALIDE_DISTRIB_PATH))
 endif
 
 ###
+# Helper functions
+###
+
+get_gen_name = $(firstword $(subst _, ,$(1)))
+
+###
 # Detect user-defined generators
 ###
 
 HLGEN_CFGS := $(filter CFG__%,$(.VARIABLES))
 HLGEN_CFGS := $(HLGEN_CFGS:CFG__%=%)
 
-HLGEN_EXCLUDE := $(foreach CFG,$(HLGEN_CFGS),$(firstword $(subst _, ,$(CFG))))
+HLGEN_EXCLUDE := $(foreach CFG,$(HLGEN_CFGS),$(call get_gen_name,$(CFG)))
 
 HLGEN_CFGS := $(HLGEN_CFGS) $(filter-out $(HLGEN_EXCLUDE), $(patsubst %.gen.cpp,%,$(wildcard *.gen.cpp)))
 
@@ -83,8 +89,11 @@ $(HLGEN_KERNEL_PATH)/%.h \
 $(HLGEN_KERNEL_PATH)/%.stmt \
 $(HLGEN_KERNEL_PATH)/%.html \
 $(HLGEN_KERNEL_PATH)/%.registration.cpp: $(HLGEN_EXE) | $(HLGEN_KERNEL_PATH)
-	$(eval GENNAME := $(if $(CFG__$*),$(firstword $(subst _, , $*)),$*))
-	./$< -g $(GENNAME) -e static_library,h,stmt,html,registration -n $* -o $(HLGEN_KERNEL_PATH) target=$(HL_TARGET) $(CFG__$*)
+	./$< -g $(call get_gen_name, $*) -e static_library,h,stmt,html,registration -n $* -o $(HLGEN_KERNEL_PATH) target=$(HL_TARGET) $(CFG__$*)
+
+###
+# Standalone generator targets
+###
 
 .PHONY: _hl_generate_target
 _hl_generate_target:
