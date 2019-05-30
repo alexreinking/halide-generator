@@ -29,7 +29,13 @@ class BuildConfig(object):
         return BuildConfig(generator, config_name, value, source=cfg)
 
     def __repr__(self):
-        return f'({self.gen}, {self.subcfg}) = {self.val} [{(self.orig or "(none)").strip()}]'
+        return str(self)
+
+    def __str__(self):
+        if self.orig:
+            return self.orig
+        suffix = '' if not self.subcfg else f'__{self.subcfg}'
+        return f'CFG__{self.gen}{suffix} = {self.val}'
 
 
 class ProjectMakefile(object):
