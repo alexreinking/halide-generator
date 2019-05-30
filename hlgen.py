@@ -6,7 +6,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Union
 
 TOOL_DIR = Path(os.path.dirname(os.path.realpath(__file__)))
 PROJ_DIR = Path(os.path.realpath(os.getcwd()))
@@ -23,41 +23,13 @@ class BuildConfig(object):
     def from_makefile(cfg):
         # Is there a way to do this without lazy groups?
         m = re.match(r'^CFG__(\w+?)(?:\s|__(\w+)?).*?=\s*(.*?)\s*$', cfg)
+        if not m:
+            return None
         generator, config_name, value = m.group(1, 2, 3)
         return BuildConfig(generator, config_name, value, source=cfg)
 
     def __repr__(self):
-        return f'({self.gen}, {self.subcfg}) = {self.val} [{self.orig or "(none)"}]'
-
-
-def parse_config_lines(cfg_window):
-    gen_to_cfgs: Dict[str, Dict[str, BuildConfig]] = {}
-    invalid: List[BuildConfig] = []
-
-    for gen in glob.glob(str(PROJ_DIR / '*.gen.cpp')):
-        gen = os.path.basename(gen).rstrip('.gen.cpp')
-        gen_to_cfgs[gen] = {}
-
-    for source_line in cfg_window:
-        source_line = source_line.strip()
-        if not source_line:
-            continue
-
-        config = BuildConfig.from_makefile(source_line)
-        if config.gen in gen_to_cfgs:
-            if config.subcfg in gen_to_cfgs[config.gen]:
-                warn(f'Generator {config.gen} has duplicate configuration {config.subcfg}')
-                invalid.append(gen_to_cfgs[config.gen][config.subcfg])
-            gen_to_cfgs[config.gen][config.subcfg] = config
-        else:
-            warn(f'Generator {config.gen} appears in Makefile but has no corresponding .gen.cpp')
-            invalid.append(config)
-
-    for gen, configs in gen_to_cfgs.items():
-        if not configs:
-            configs[''] = BuildConfig(gen, '', '')
-
-    return gen_to_cfgs, invalid
+        return f'({self.gen}, {self.subcfg}) = {self.val} [{(self.orig or "(none)").strip()}]'
 
 
 class ProjectMakefile(object):
@@ -69,8 +41,7 @@ class ProjectMakefile(object):
         with open(path, 'r') as f:
             self._lines = f.readlines()
 
-        self._compute_landmarks(self._lines)
-        self._gens, self._invalid = parse_config_lines(self._lines[self.cfg_start:self.cfg_end])
+        self._gens, self._invalid = self._parse_makefile()
 
     def lines(self):
         return self._lines
@@ -78,35 +49,70 @@ class ProjectMakefile(object):
     def get_generators(self):
         return self._gens, self._invalid
 
-    def _compute_landmarks(self, lines):
-        n_lines = len(lines)
+    def _parse_makefile(self):
+        saw_generator_comment = False
+        num_lines = len(self._lines)
+        after_comment = num_lines
+        cfg_start = num_lines
+        cfg_end = num_lines
 
-        enum_lines = list(enumerate(lines))
+        configurations = []
+        invalid_configurations = []
+        generator2configs = {}
 
-        # Try to find the skeleton's landmark comment
-        comment_line = next((i for i, line in enum_lines
-                             if line.startswith('# Configure generators')), n_lines)
+        # Create table for all the valid generators
+        for gen in glob.glob(str(PROJ_DIR / '*.gen.cpp')):
+            gen = os.path.basename(gen).rstrip('.gen.cpp')
+            generator2configs[gen] = {}
 
-        # Find the first non-comment line after the landmark
-        after_comment = next((i for i, line in enum_lines[comment_line + 1:]
-                              if not line.startswith('#')), n_lines)
+        last_cfg = num_lines
 
-        # cfg_start is the very first line to create a configuration
-        cfg_start = next((i for i, line in enum_lines
-                          if line.startswith('CFG__')), n_lines)
+        # Populate table with configurations from makefile
+        for i, line in enumerate(self._lines):
+            if not line.strip():
+                if saw_generator_comment and after_comment == num_lines:
+                    after_comment = i
+                continue
 
-        # cfg_end is the very last configuration that is contiguous with the first one, allowing
-        # for intervening blank lines
-        cfg_end = next((i for i, line in enum_lines[cfg_start + 1:]
-                        if line.strip() and not line.strip().startswith('CFG__')), n_lines)
+            if line.startswith('# Configure generators'):
+                saw_generator_comment = True
+            if saw_generator_comment and after_comment == num_lines and not line.strip().startswith('#'):
+                after_comment = i
 
-        # chop trailing blank lines
-        cfg_end -= next((i for i, line in enumerate(lines[cfg_start:cfg_end][::-1])
-                         if line.strip()), 0)
+            config = BuildConfig.from_makefile(line)
+            if cfg_start == num_lines and config:
+                cfg_start = i
+
+            if cfg_end == num_lines and config:
+                if config.gen not in generator2configs:
+                    warn(f'invalid configuration specified for {config.gen} in Makefile:{i + 1}')
+                    invalid_configurations.append(config)
+                else:
+                    if config.subcfg in generator2configs[config.gen]:
+                        warn(f'using overriding configuration for {config.gen} from Makefile:{i + 1}')
+                        old_config = generator2configs[config.gen][config.subcfg]
+                        configurations.remove(old_config)
+                        invalid_configurations.append(old_config)
+                    generator2configs[config.gen][config.subcfg] = config
+                    configurations.append(config)
+                last_cfg = i
+
+            if cfg_start < num_lines and cfg_end == num_lines and not config:
+                cfg_end = last_cfg + 1
+
+        # If any generators didn't appear in the makefile, they get default configurations inferred
+        for gen in generator2configs:
+            if not generator2configs[gen]:
+                generator2configs[gen][''] = BuildConfig(gen, '', '')
+                configurations.append(BuildConfig(gen, '', ''))
 
         self.after_comment = after_comment
         self.cfg_start = cfg_start
         self.cfg_end = cfg_end
+
+        print(after_comment + 1, cfg_start + 1, cfg_end + 1)
+
+        return configurations, invalid_configurations
 
 
 def warn(msg):
@@ -229,19 +235,14 @@ The available hlgen commands are:
     def list(self, argv):
         self._require_project()
         project = ProjectMakefile(PROJ_DIR / 'Makefile')
-        gens, invalid = project.get_generators()
+        configurations, invalid = project.get_generators()
 
-        for cfg in invalid:
-            warn(f'[BAD CFG] {cfg.orig}')
-
-        if invalid:
-            print()
-
-        for gen in gens:
-            table = Table()
-            for cfg in gens[gen].values():
-                table.add_row(gen, cfg.subcfg or '(default)', cfg.val)
-            print(table)
+        table = Table()
+        for config in configurations:
+            table.add_row(config.gen,
+                          config.subcfg or '(default)',
+                          config.val or '(default)')
+        print(table)
 
     def create(self, argv):
         parser = argparse.ArgumentParser(
