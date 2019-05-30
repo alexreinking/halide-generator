@@ -36,5 +36,5 @@ all: allcfgs
 # Include common support Makefile
 ###
 
-include {{_HLGEN_BASE}}/support/Makefile
+include ${_HLGEN_BASE}/support/Makefile
 

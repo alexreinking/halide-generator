@@ -6,7 +6,10 @@ HALIDE_DISTRIB_PATH ?= /opt/halide
 HL_TARGET ?= host
 
 HLGEN_KERNEL_PATH ?= ./kernels
-HLGEN_EXE ?= hlgen
+
+_HLGEN_EXE := $(dir $(abspath $(firstword $(MAKEFILE_LIST))))
+_HLGEN_EXE := $(notdir $(_HLGEN_EXE:%/=%))
+HLGEN_EXE ?= $(_HLGEN_EXE).generator
 
 ###
 # Detect Halide installation
