@@ -13,29 +13,29 @@ PROJ_DIR = Path(os.path.realpath(os.getcwd()))
 
 
 class BuildConfig(object):
-    def __init__(self, generator, config_name, value, *, source=None):
-        self.gen = generator or ''
-        self.subcfg = config_name or ''
-        self.val = value or ''
-        self.orig = source
+    def __init__(self, generator, config_name, value, *, source=None, lineno=-1):
+        self.generator = generator or ''
+        self.config_name = config_name or ''
+        self.params = value or ''
+        self.source = source
+        self.lineno = lineno
 
     @staticmethod
-    def from_makefile(cfg):
+    def from_makefile(source, lineno):
         # Is there a way to do this without lazy groups?
-        m = re.match(r'^CFG__(\w+?)(?:\s|__(\w+)?).*?=\s*(.*?)\s*$', cfg)
+        m = re.match(r'^CFG__(\w+?)(?:\s|__(\w+)?).*?=\s*(.*?)\s*$', source)
         if not m:
             return None
-        generator, config_name, value = m.group(1, 2, 3)
-        return BuildConfig(generator, config_name, value, source=cfg)
+        return BuildConfig(*m.group(1, 2, 3), source=source, lineno=lineno)
 
     def __repr__(self):
         return str(self)
 
     def __str__(self):
-        if self.orig:
-            return self.orig
-        suffix = '' if not self.subcfg else f'__{self.subcfg}'
-        return f'CFG__{self.gen}{suffix} = {self.val}'
+        if self.source:
+            return self.source
+        suffix = '' if not self.config_name else f'__{self.config_name}'
+        return f'CFG__{self.generator}{suffix} = {self.params}'
 
 
 class ProjectMakefile(object):
@@ -85,21 +85,21 @@ class ProjectMakefile(object):
             if saw_generator_comment and after_comment == num_lines and not line.strip().startswith('#'):
                 after_comment = i
 
-            config = BuildConfig.from_makefile(line)
+            config = BuildConfig.from_makefile(line, i)
             if cfg_start == num_lines and config:
                 cfg_start = i
 
             if cfg_end == num_lines and config:
-                if config.gen not in generator2configs:
-                    warn(f'invalid configuration specified for {config.gen} in Makefile:{i + 1}')
+                if config.generator not in generator2configs:
+                    warn(f'invalid configuration specified for {config.generator} in Makefile:{i + 1}')
                     invalid_configurations.append(config)
                 else:
-                    if config.subcfg in generator2configs[config.gen]:
-                        warn(f'using overriding configuration for {config.gen} from Makefile:{i + 1}')
-                        old_config = generator2configs[config.gen][config.subcfg]
+                    if config.config_name in generator2configs[config.generator]:
+                        warn(f'using overriding configuration for {config.generator} from Makefile:{i + 1}')
+                        old_config = generator2configs[config.generator][config.config_name]
                         configurations.remove(old_config)
                         invalid_configurations.append(old_config)
-                    generator2configs[config.gen][config.subcfg] = config
+                    generator2configs[config.generator][config.config_name] = config
                     configurations.append(config)
                 last_cfg = i
 
@@ -111,6 +111,10 @@ class ProjectMakefile(object):
             if not generator2configs[gen]:
                 generator2configs[gen][''] = BuildConfig(gen, '', '')
                 configurations.append(BuildConfig(gen, '', ''))
+
+        self._index = {}
+        for config in configurations:
+            self._index[(config.generator, config.config_name)] = config
 
         self.after_comment = after_comment
         self.cfg_start = cfg_start
@@ -287,9 +291,9 @@ The available hlgen commands are:
         table.set_headers('Generator', 'Configuration', 'Parameters')
 
         for config in configurations:
-            table.add_row(config.gen,
-                          config.subcfg or '(default)',
-                          config.val or '(default)')
+            table.add_row(config.generator,
+                          config.config_name or '(default)',
+                          config.params or '(default)')
         print(table)
 
     def create(self, argv):
