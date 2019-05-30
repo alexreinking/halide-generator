@@ -3,6 +3,7 @@
 This is a simple tool for quickly creating Halide projects and generators with
 sane makefiles. Features include:
 
+* Create new-style benchmark tools and runners by default.
 * Multiple configurations per generator
 * Precompiled headers
 * Merging all configurations into a single static lib with a suitable runtime (TODO)
