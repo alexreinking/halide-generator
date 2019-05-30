@@ -42,6 +42,7 @@ class Project(object):
                     relative / file_name,
                     {'_HLGEN_BASE': TOOL_DIR,
                      'NAME': project_name})
+        return project
 
     def get_makefile(self):
         if not self._makefile:

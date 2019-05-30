@@ -39,7 +39,6 @@ The available hlgen commands are:
     def list(self, argv):
         project = Project()
         configurations, invalid = project.get_configurations()
-        configurations: List[BuildConfig] = configurations
         configurations.sort(key=lambda cfg: (cfg.generator, cfg.config_name))
 
         table = Table()
@@ -92,6 +91,7 @@ The new configuration will be compiled as <gen>__<name>.{a,h,so,etc.}
                             help='The name of the generator. This will also be the name of the source file created.')
 
         args = parser.parse_args(argv)
+
         project = Project()
         project.create_generator(args.name)
         project.save()
@@ -104,5 +104,6 @@ The new configuration will be compiled as <gen>__<name>.{a,h,so,etc.}
                             help='The name of the project. This will also be the name of the directory created.')
 
         args = parser.parse_args(argv)
+
         project = Project.create_new(args.name)
         project.save()
