@@ -6,8 +6,9 @@ import itertools
 import os
 import re
 import sys
+from collections import defaultdict
 from pathlib import Path
-from typing import Union, List
+from typing import Union, List, DefaultDict, Dict
 
 TOOL_DIR = Path(os.path.dirname(os.path.realpath(__file__)))
 PROJ_DIR = Path(os.path.realpath(os.getcwd()))
@@ -113,15 +114,27 @@ class ProjectMakefile(object):
                 generator2configs[gen][''] = BuildConfig(gen, '', '')
                 configurations.append(BuildConfig(gen, '', ''))
 
-        self._index = {}
+        self._index: DefaultDict[str, Dict[str, BuildConfig]] = defaultdict(dict)
         for config in configurations:
-            self._index[(config.generator, config.config_name)] = config
+            self._index[config.generator][config.config_name] = config
 
         self.after_comment = after_comment
         self.cfg_start = cfg_start
         self.cfg_end = cfg_end
 
         return configurations, invalid_configurations
+
+    def has_generator(self, name):
+        return name in self._index
+
+    def add_generator(self, name):
+        if self.has_generator(name):
+            raise ValueError('cannot add a new generator when one already exists')
+        self._index[name][''] = BuildConfig(name, '', '')
+
+    def save(self):
+        with open(self.path, 'w') as f:
+            f.writelines(self._lines)
 
 
 def warn(msg):
@@ -316,43 +329,67 @@ The available hlgen commands are:
 
         getattr(self, method)(argv[1:])
 
+    def create_generator(self, argv):
+        parser = argparse.ArgumentParser(
+            description='Create a new Halide generator',
+            usage='hlgen create generator <name>')
+        parser.add_argument('name', type=str,
+                            help='The name of the generator. This will also be the name of the source file created.')
+
+        args = parser.parse_args(argv)
+        project = self._open_project()
+
+        if project.has_generator(args.name):
+            warn(f'generator {args.name} already exists!')
+            sys.exit(1)
+
+        project.add_generator(args.name)
+        self.copy_from_skeleton(Path('${NAME}.gen.cpp'), {'_HLGEN_BASE': TOOL_DIR,
+                                                          'NAME': args.name})
+        project.save()
+
     def create_project(self, argv):
         parser = argparse.ArgumentParser(
             description='Create a new Halide project',
             usage='hlgen create project <name>')
-        parser.add_argument('project_name', type=str,
+        parser.add_argument('name', type=str,
                             help='The name of the project. This will also be the name of the directory created.')
 
         args = parser.parse_args(argv)
 
-        if os.path.isdir(args.project_name):
+        if os.path.isdir(args.name):
             warn('project directory already exists!')
             sys.exit(1)
 
-        os.mkdir(args.project_name)
-        PROJ_DIR = Path(os.path.realpath(args.project_name))
+        os.mkdir(args.name)
+
+        global PROJ_DIR
+        PROJ_DIR = Path(os.path.realpath(args.name))
 
         env = {'_HLGEN_BASE': TOOL_DIR,
-               'NAME': args.project_name}
+               'NAME': args.name}
 
-        self.init_from_skeleton(PROJ_DIR, env)
+        self.init_from_skeleton(env)
 
-    def init_from_skeleton(self, project_path, env):
+    def copy_from_skeleton(self, relative, env):
+        skel_file = TOOL_DIR / 'skeleton' / relative
+        proj_file = PROJ_DIR / relative
+
+        with open(skel_file, 'r') as f:
+            content = expand_template(f.read(), env)
+
+        proj_file = proj_file.with_name(expand_template(proj_file.name, env))
+        with open(proj_file, 'w') as f:
+            f.write(content)
+
+    def init_from_skeleton(self, env):
         skeleton_path = TOOL_DIR / 'skeleton'
         for root, _, files in os.walk(skeleton_path):
-            skel_dir = Path(root)
-            relative = skel_dir.relative_to(skeleton_path)
-            proj_dir = project_path / relative
+            relative = Path(root).relative_to(skeleton_path)
 
-            os.makedirs(proj_dir, exist_ok=True)
-
+            os.makedirs(PROJ_DIR / relative, exist_ok=True)
             for file_name in files:
-                with open(skel_dir / file_name, 'r') as f:
-                    content = f.read()
-
-                file_name = expand_template(file_name, env)
-                with open(proj_dir / file_name, 'w') as f:
-                    f.write(expand_template(content, env))
+                self.copy_from_skeleton(relative / file_name, env)
 
 
 if __name__ == '__main__':
