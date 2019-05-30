@@ -34,6 +34,9 @@ class BuildConfig(object):
         return str(self)
 
     def __str__(self):
+        return self._render().rstrip() + '\n'
+
+    def _render(self):
         if self.source:
             return self.source
         suffix = '' if not self.config_name else f'__{self.config_name}'
@@ -135,6 +138,37 @@ class ProjectMakefile(object):
     def save(self):
         with open(self.path, 'w') as f:
             f.writelines(self._lines)
+
+    def add_configuration(self, gen, name, params):
+        if name in self._index[gen]:
+            raise ValueError('use update_configuration to update in place (without rearranging makefile)')
+        config = BuildConfig(gen, name, params)
+        self._gens.append(config)
+        self._index[gen][name] = config
+        self._regenerate()
+
+    def _regenerate(self):
+        if self.cfg_start < len(self._lines):
+            cfg_start = self.cfg_start
+            cfg_end = self.cfg_end
+        elif self.after_comment < len(self._lines):
+            cfg_start = self.after_comment
+            cfg_end = self.after_comment
+        else:
+            cfg_start = cfg_end = len(self._lines)
+
+        prefix = self._lines[:cfg_start]
+        suffix = self._lines[cfg_end:]
+
+        cfgs = []
+        for gen, gen_cfgs in self._index.items():
+            # when the only entry is the default one, don't put it in the makefile
+            if len(gen_cfgs) == 1 and '' in gen_cfgs and not gen_cfgs[''].params:
+                continue
+            cfgs.extend(map(str, gen_cfgs.values()))
+
+        self._lines = prefix + cfgs + suffix
+        self._parse_makefile()
 
 
 def warn(msg):
@@ -328,6 +362,27 @@ The available hlgen commands are:
         method = f'create_{args.item_type}'
 
         getattr(self, method)(argv[1:])
+
+    def create_configuration(self, argv):
+        parser = argparse.ArgumentParser(
+            description='Create a new Halide generator configuration',
+            usage='''hlgen create configuration <gen> <name> [<generator-params>]
+
+The new configuration will be compiled as <gen>__<name>.{a,h,so,etc.}
+''')
+        parser.add_argument('gen', type=str, help='The name of the generator.')
+        parser.add_argument('name', type=str, help='The name of the configuration.')
+
+        args, generator_params = parser.parse_known_args(argv)
+
+        project = self._open_project()
+
+        if not project.has_generator(args.gen):
+            warn(f'no generator named {args.gen} exists!')
+            sys.exit(1)
+
+        project.add_configuration(args.gen, args.name, ' '.join(generator_params))
+        project.save()
 
     def create_generator(self, argv):
         parser = argparse.ArgumentParser(
