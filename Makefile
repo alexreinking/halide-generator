@@ -6,6 +6,12 @@ CXX=g++
 CXXFLAGS=-O3 -g3 -std=c++14
 
 ###
+# Configure generators
+###
+
+all: run_hello
+
+###
 # Halide configuration options
 ###
 
@@ -73,13 +79,7 @@ run_%: $(HLGEN_KERNEL_PATH)/%.registration.cpp $(HLGEN_KERNEL_PATH)/RunGenMain.o
 # Cleanup
 ###
 
-.PHONY: hlgen_clean
-hlgen_clean:
+.PHONY: clean
+clean::
 	$(RM) -r $(HLGEN_KERNEL_PATH)
 	$(RM) $(HLGEN_EXE) run_*
-
-###
-# Targets
-###
-
-all: ; @echo foo
