@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-from collections import defaultdict
-from pathlib import Path
 import argparse
 import ast
 import glob
-import itertools
 import os
 import re
 import sys
+from collections import defaultdict
+from pathlib import Path
 
 TOOL_DIR = Path(os.path.dirname(os.path.realpath(__file__)))
 PROJ_DIR = Path(os.path.realpath(os.getcwd()))
 
-class CfgLine():
+
+class CfgLine(object):
     def __init__(self, cfg):
         # Is there a way to do this without lazy groups?
         m = re.match(r'^CFG__(\w+?)(?:\s|__(\w+)?).*?=\s*(.*?)\s*$', cfg)
@@ -25,7 +25,8 @@ class CfgLine():
     def __repr__(self):
         return f'({self.gen}, {self.subcfg}) = {self.val} [{self.orig}]'
 
-class ProjectMakefile():
+
+class ProjectMakefile(object):
     def __init__(self, path):
         if isinstance(path, str):
             path = Path(path)
@@ -37,30 +38,30 @@ class ProjectMakefile():
         self._compute_landmarks()
 
     def _compute_landmarks(self):
-        nLines = len(self._lines)
+        n_lines = len(self._lines)
 
         enum_lines = list(enumerate(self._lines))
 
         # Try to find the skeleton's landmark comment
-        comment_line = next((i for i, line in enum_lines \
-                if line.startswith('# Configure generators')), nLines)
+        comment_line = next((i for i, line in enum_lines
+                             if line.startswith('# Configure generators')), n_lines)
 
         # Find the first non-comment line after the landmark
-        after_comment = next((i for i, line in enum_lines[comment_line+1:] \
-                if not line.startswith('#')), nLines)
+        after_comment = next((i for i, line in enum_lines[comment_line + 1:]
+                              if not line.startswith('#')), n_lines)
 
         # cfg_start is the very first line to create a configuration
-        cfg_start = next((i for i, line in enum_lines \
-                if line.startswith('CFG__')), nLines)
+        cfg_start = next((i for i, line in enum_lines
+                          if line.startswith('CFG__')), n_lines)
 
         # cfg_end is the very last configuration that is contiguous with the first one, allowing
         # for intervening blank lines
-        cfg_end = next((i for i, line in enum_lines[cfg_start+1:] \
-                if line.strip() and not line.strip().startswith('CFG__')), nLines)
+        cfg_end = next((i for i, line in enum_lines[cfg_start + 1:]
+                        if line.strip() and not line.strip().startswith('CFG__')), n_lines)
 
         # chop trailing blank lines
-        cfg_end -= next((i for i, line in enumerate(self._lines[cfg_start:cfg_end][::-1]) \
-                if line.strip()), 0)
+        cfg_end -= next((i for i, line in enumerate(self._lines[cfg_start:cfg_end][::-1])
+                         if line.strip()), 0)
 
         self.after_comment = after_comment
         self.cfg_start = cfg_start
@@ -102,13 +103,15 @@ class ProjectMakefile():
         return self._parse_generators()
 
     def _insertion_point(self):
-        nLines = len(lines)
-        if self.cfg_start < self.cfg_end and self.cfg_start < nLines:
+        n_lines = len(self._lines)
+        if self.cfg_start < self.cfg_end and self.cfg_start < n_lines:
             return self.cfg_start
-        return min(self.after_comment, nLines)
+        return min(self.after_comment, n_lines)
+
 
 def warn(msg):
     print(f'WARNING: {msg}', file=sys.stderr)
+
 
 def expand_template(template, env=None, **kwargs):
     if not env:
@@ -130,14 +133,14 @@ def expand_template(template, env=None, **kwargs):
         key = ast.dump(expression)
         if key in funs:
             return funs[key]
-      
+
         names = get_names(expression)
         body = expression.body
 
         args = [ast.arg(arg=name, annotation=None) for name in names]
         body = ast.Lambda(
-                ast.arguments(args=args, defaults=[], kwonlyargs=[], kw_defaults=[]),
-                body)
+            ast.arguments(args=args, defaults=[], kwonlyargs=[], kw_defaults=[]),
+            body)
 
         expression.body = body
         ast.fix_missing_locations(expression)
@@ -158,17 +161,19 @@ def expand_template(template, env=None, **kwargs):
     # TODO: do something smarter here for matching { }
     return re.sub(r'\${([^}]+)}', lambda m: expand(m.group(1)), template)
 
+
 def get_halide_directory():
     hldir = os.environ.get('HALIDE_DISTRIB_PATH')
     if not hldir:
         hldir = '/opt/halide'
     return os.path.realpath(hldir) if os.path.isdir(hldir) else None
 
+
 class Table(object):
     def __init__(self, width=0, colpadding=1):
         self.width = width
         self.sizes = [0] * width
-        self.rows  = []
+        self.rows = []
         self.colpadding = colpadding
 
     def add_row(self, *args):
@@ -185,15 +190,16 @@ class Table(object):
 
     def __str__(self):
         gutter = ' ' * self.colpadding
-        
+
         template = ['{:<{}}'] * self.width
         template = (gutter + '|' + gutter).join(template)
-        
+
         output = ''
         for row in self.rows:
             fmtargs = zip(row, self.sizes)
             output += template.format(*[x for y in fmtargs for x in y]) + '\n'
         return output
+
 
 class HLGen(object):
     def __init__(self):
@@ -242,7 +248,8 @@ The available hlgen commands are:
         parser = argparse.ArgumentParser(
             description='Create a new Halide project, generator, or configuration',
             usage='hlgen create <item_type> [<args>]')
-        parser.add_argument('item_type', type=str, choices=['project', 'generator', 'configuration'], help='what kind of item to create')
+        parser.add_argument('item_type', type=str, choices=['project', 'generator', 'configuration'],
+                            help='what kind of item to create')
 
         args = parser.parse_args(argv[:1])
         method = f'create_{args.item_type}'
@@ -251,21 +258,22 @@ The available hlgen commands are:
 
     def create_project(self, argv):
         parser = argparse.ArgumentParser(
-                description='Create a new Halide project',
-                usage='hlgen create project <name>')
-        parser.add_argument('project_name', type=str, help='The name of the project. This will also be the name of the directory created.')
+            description='Create a new Halide project',
+            usage='hlgen create project <name>')
+        parser.add_argument('project_name', type=str,
+                            help='The name of the project. This will also be the name of the directory created.')
 
         args = parser.parse_args(argv)
-        
+
         if os.path.isdir(args.project_name):
             warn('project directory already exists!')
             sys.exit(1)
 
         os.mkdir(args.project_name)
         PROJ_DIR = Path(os.path.realpath(args.project_name))
-        
-        env = { '_HLGEN_BASE': TOOL_DIR,
-                'NAME': args.project_name }
+
+        env = {'_HLGEN_BASE': TOOL_DIR,
+               'NAME': args.project_name}
 
         self.init_from_skeleton(PROJ_DIR, env)
 
@@ -285,7 +293,6 @@ The available hlgen commands are:
                 file_name = expand_template(file_name, env)
                 with open(proj_dir / file_name, 'w') as f:
                     f.write(expand_template(content, env))
-
 
 
 if __name__ == '__main__':
