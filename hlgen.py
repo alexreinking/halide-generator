@@ -266,18 +266,19 @@ The available hlgen commands are:
 
         getattr(self, args.command)(sys.argv[2:])
 
-    def _require_project(self):
+    @staticmethod
+    def _open_project():
         if not (PROJ_DIR / 'Makefile').exists():
             warn('There is no makefile in this directory. Are you sure you are in a project folder?')
             sys.exit(1)
+        return ProjectMakefile(PROJ_DIR / 'Makefile')
 
     def list(self, argv):
-        self._require_project()
-        project = ProjectMakefile(PROJ_DIR / 'Makefile')
+        project = self._open_project()
         configurations, invalid = project.get_generators()
 
         table = Table()
-        table.set_headers('Generator', 'Configuration', 'Value')
+        table.set_headers('Generator', 'Configuration', 'Parameters')
 
         for config in configurations:
             table.add_row(config.gen,
