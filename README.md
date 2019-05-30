@@ -6,6 +6,15 @@ sane makefiles. Features include:
 * Multiple configurations per generator
 * Precompiled headers
 * Merging all configurations into a single static lib with a suitable runtime (TODO)
+* Integration with the autoscheduler (TODO - need upstream support, too)
+
+This project is _hours_ old. Therefore expect:
+
+* No support for non-GNU make
+* No support for compilers other than GCC (and maybe clang)
+* Lots of bugs
+
+Feel free to contribute, though I'm rapidly bringing this to alpha.
 
 ## Quick demo
 
