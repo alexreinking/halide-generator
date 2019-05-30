@@ -4,7 +4,10 @@ import re
 from pathlib import Path
 from typing import Union, Dict, Optional, List
 
+from src.formatting import expand_template
 from src.logging import warn
+
+TOOL_DIR = Path(os.path.dirname(os.path.realpath(os.path.join(__file__, '..'))))
 
 
 class Project(object):
@@ -13,10 +16,66 @@ class Project(object):
             root = Path(root)
         if not root:
             root = Path(os.path.realpath(os.getcwd()))
+        if not root.is_dir():
+            raise ValueError(f'project directory {root} does not exist')
         self.root = root
+        self._makefile = None
+
+    def get_configurations(self):
+        makefile = self.get_makefile()
+        return makefile.get_generators()
+
+    @staticmethod
+    def create_new(project_name):
+        if os.path.isdir(project_name):
+            raise ValueError(f'project directory {project_name} already exists!')
+
+        os.mkdir(project_name)
+        project = Project(os.path.realpath(project_name))
+        skeleton_path = TOOL_DIR / 'skeleton'
+        for root, _, files in os.walk(skeleton_path):
+            relative = Path(root).relative_to(skeleton_path)
+
+            os.makedirs(project.root / relative, exist_ok=True)
+            for file_name in files:
+                project._copy_from_skeleton(
+                    relative / file_name,
+                    {'_HLGEN_BASE': TOOL_DIR,
+                     'NAME': project_name})
 
     def get_makefile(self):
-        return ProjectMakefile(self)
+        if not self._makefile:
+            self._makefile = Makefile(self)
+        return self._makefile
+
+    def _copy_from_skeleton(self, relative, env):
+        skel_file = TOOL_DIR / 'skeleton' / relative
+        proj_file = self.root / relative
+
+        with open(skel_file, 'r') as f:
+            content = expand_template(f.read(), env)
+
+        proj_file = proj_file.with_name(expand_template(proj_file.name, env))
+        with open(proj_file, 'w') as f:
+            f.write(content)
+
+    def create_generator(self, generator_name):
+        makefile = self.get_makefile()
+        self._copy_from_skeleton(
+            Path('${NAME}.gen.cpp'),
+            {'_HLGEN_BASE': TOOL_DIR, 'NAME': generator_name})
+
+    def create_configuration(self, generator_name, config_name, params):
+        makefile = self.get_makefile()
+        makefile.add_configuration(
+            generator_name,
+            config_name,
+            ' '.join(params)
+        )
+
+    def save(self):
+        if self._makefile:
+            self._makefile.save()
 
 
 class BuildConfig(object):
@@ -48,7 +107,7 @@ class BuildConfig(object):
         return f'CFG__{self.generator}{suffix} = {self.params}'
 
 
-class ProjectMakefile(object):
+class Makefile(object):
     def __init__(self, project: Project):
         self.project = project
         self.path = project.root / 'Makefile'
@@ -153,7 +212,7 @@ class ProjectMakefile(object):
 
     def add_generator(self, name):
         if self.has_generator(name):
-            raise ValueError('cannot add a new generator when one already exists')
+            raise ValueError(f'generator {name} already exists!')
         self._index[name][''] = BuildConfig(name, '', '')
 
     def save(self):

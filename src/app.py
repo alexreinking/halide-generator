@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import List
 
-from src.formatting import Table, expand_template
+from src.formatting import Table
 from src.logging import warn
 from src.project import Project, BuildConfig
 
@@ -30,11 +30,15 @@ The available hlgen commands are:
             parser.print_help()
             sys.exit(1)
 
-        getattr(self, args.command)(sys.argv[2:])
+        try:
+            getattr(self, args.command)(sys.argv[2:])
+        except ValueError as e:
+            warn(str(e))
+            sys.exit(1)
 
     def list(self, argv):
-        makefile = Project().get_makefile()
-        configurations, invalid = makefile.get_generators()
+        project = Project()
+        configurations, invalid = project.get_configurations()
         configurations: List[BuildConfig] = configurations
         configurations.sort(key=lambda cfg: (cfg.generator, cfg.config_name))
 
@@ -76,14 +80,9 @@ The new configuration will be compiled as <gen>__<name>.{a,h,so,etc.}
 
         args, generator_params = parser.parse_known_args(argv)
 
-        makefile = Project().get_makefile()
-
-        if not makefile.has_generator(args.gen):
-            warn(f'no generator named {args.gen} exists!')
-            sys.exit(1)
-
-        makefile.add_configuration(args.gen, args.name, ' '.join(generator_params))
-        makefile.save()
+        project = Project()
+        project.create_configuration(args.gen, args.name, generator_params)
+        project.save()
 
     def create_generator(self, argv):
         parser = argparse.ArgumentParser(
@@ -94,18 +93,8 @@ The new configuration will be compiled as <gen>__<name>.{a,h,so,etc.}
 
         args = parser.parse_args(argv)
         project = Project()
-        makefile = project.get_makefile()
-
-        if makefile.has_generator(args.name):
-            warn(f'generator {args.name} already exists!')
-            sys.exit(1)
-
-        makefile.add_generator(args.name)
-        self.copy_from_skeleton(
-            project,
-            Path('${NAME}.gen.cpp'),
-            {'_HLGEN_BASE': TOOL_DIR, 'NAME': args.name})
-        makefile.save()
+        project.create_generator(args.name)
+        project.save()
 
     def create_project(self, argv):
         parser = argparse.ArgumentParser(
@@ -115,36 +104,5 @@ The new configuration will be compiled as <gen>__<name>.{a,h,so,etc.}
                             help='The name of the project. This will also be the name of the directory created.')
 
         args = parser.parse_args(argv)
-
-        if os.path.isdir(args.name):
-            warn('project directory already exists!')
-            sys.exit(1)
-
-        os.mkdir(args.name)
-
-        project = Project(os.path.realpath(args.name))
-
-        env = {'_HLGEN_BASE': TOOL_DIR,
-               'NAME': args.name}
-
-        self.init_from_skeleton(project, env)
-
-    def copy_from_skeleton(self, project, relative, env):
-        skel_file = TOOL_DIR / 'skeleton' / relative
-        proj_file = project.root / relative
-
-        with open(skel_file, 'r') as f:
-            content = expand_template(f.read(), env)
-
-        proj_file = proj_file.with_name(expand_template(proj_file.name, env))
-        with open(proj_file, 'w') as f:
-            f.write(content)
-
-    def init_from_skeleton(self, project, env):
-        skeleton_path = TOOL_DIR / 'skeleton'
-        for root, _, files in os.walk(skeleton_path):
-            relative = Path(root).relative_to(skeleton_path)
-
-            os.makedirs(project.root / relative, exist_ok=True)
-            for file_name in files:
-                self.copy_from_skeleton(project, relative / file_name, env)
+        project = Project.create_new(args.name)
+        project.save()
