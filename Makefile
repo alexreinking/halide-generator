@@ -48,12 +48,15 @@ get_gen_name = $(firstword $(subst _, ,$(1)))
 
 HLGEN_CFGS := $(filter CFG__%,$(.VARIABLES))
 HLGEN_CFGS := $(HLGEN_CFGS:CFG__%=%)
-
 HLGEN_EXCLUDE := $(foreach CFG,$(HLGEN_CFGS),$(call get_gen_name,$(CFG)))
+HLGEN_CFGS := $(sort $(HLGEN_CFGS) $(filter-out $(HLGEN_EXCLUDE), $(patsubst %.gen.cpp,%,$(wildcard *.gen.cpp))))
 
-HLGEN_CFGS := $(HLGEN_CFGS) $(filter-out $(HLGEN_EXCLUDE), $(patsubst %.gen.cpp,%,$(wildcard *.gen.cpp)))
+HLGEN_GENS := $(sort $(foreach O,$(HLGEN_CFGS),$(call get_gen_name, $(O))))
 
-$(info Detected configurations $(HLGEN_CFGS))
+ifneq ($(addsuffix .gen.cpp, $(HLGEN_GENS)),$(sort $(wildcard *.gen.cpp)))
+$(warning Detected configurations: $(HLGEN_CFGS))
+$(error Missing .gen.cpp for one of: $(HLGEN_GENS))
+endif
 
 .PHONY: allcfgs
 allcfgs: $(addprefix run_, $(HLGEN_CFGS))
