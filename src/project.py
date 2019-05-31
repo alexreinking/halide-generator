@@ -65,6 +65,7 @@ class Project(object):
         self._copy_from_skeleton(
             Path('${NAME}.gen.cpp'),
             {'_HLGEN_BASE': TOOL_DIR, 'NAME': generator_name})
+        makefile.add_generator(generator_name)
 
     def create_configuration(self, generator_name, config_name, params):
         makefile = self.get_makefile()
@@ -73,6 +74,12 @@ class Project(object):
             config_name,
             ' '.join(params)
         )
+
+    def delete_configuration(self, generator_name, config_name):
+        makefile = self.get_makefile()
+        makefile.delete_configuration(
+            generator_name,
+            config_name)
 
     def save(self):
         if self._makefile:
@@ -214,6 +221,7 @@ class Makefile(object):
     def add_generator(self, name):
         if self.has_generator(name):
             raise ValueError(f'generator {name} already exists!')
+        self._index[name] = {}
         self._index[name][''] = BuildConfig(name, '', '')
 
     def save(self):
@@ -221,8 +229,12 @@ class Makefile(object):
             f.writelines(self._lines)
 
     def add_configuration(self, gen, name, params):
+        if gen not in self._index:
+            raise ValueError(f'no generator named {gen}')
+        if name == '(default)':
+            name = ''
         if name in self._index[gen]:
-            raise ValueError('use update_configuration to update in place (without rearranging makefile)')
+            raise ValueError(f'configuration {name or "(default)"} already exists. use update configuration instead')
         config = BuildConfig(gen, name, params)
         self.current_configurations.append(config)
         self._index[gen][name] = config
@@ -246,3 +258,15 @@ class Makefile(object):
             cfgs.append(list(sorted(gen_cfgs.values(), key=lambda cfg: cfg.config_name)))
         cfgs.sort(key=lambda grp: grp[0].generator)
         return cfgs
+
+    def delete_configuration(self, generator_name, config_name):
+        if generator_name not in self._index:
+            raise ValueError(f'no generator named {generator_name}')
+        if config_name == '(default)':
+            config_name = ''
+        if config_name not in self._index[generator_name]:
+            raise ValueError(f'no configuration named {config_name or "(default)"} for generator {generator_name}')
+        if len(self._index[generator_name]) == 1:
+            raise ValueError(f'cannot leave generator unconfigured. use \'delete generator\' to delete a generator.')
+        del self._index[generator_name][config_name]
+        self._regenerate()

@@ -3,11 +3,10 @@ import itertools
 import os
 import sys
 from pathlib import Path
-from typing import List
 
 from src.formatting import Table
 from src.logging import warn
-from src.project import Project, BuildConfig
+from src.project import Project
 
 TOOL_DIR = Path(os.path.dirname(os.path.realpath(os.path.join(__file__, '..'))))
 
@@ -35,6 +34,35 @@ The available hlgen commands are:
         except ValueError as e:
             warn(str(e))
             sys.exit(1)
+
+    def delete(self, argv):
+        parser = argparse.ArgumentParser(
+            description='Delete an existing Halide generator or configuration',
+            usage='hlgen delete <item_type> [<args>]')
+        parser.add_argument('item_type', type=str, choices=['generator', 'configuration'],
+                            help='what kind of item to delete')
+
+        args = parser.parse_args(argv[:1])
+        method = f'delete_{args.item_type}'
+
+        getattr(self, method)(argv[1:])
+
+    def delete_configuration(self, argv):
+        parser = argparse.ArgumentParser(
+            description='Delete an existing Halide generator configuration',
+            usage='''hlgen delete configuration <gen> [<name>]
+
+        Recommended to run `make clean` before running this command. To remove
+        the default configuration, either omit <name> or write '(default)'.
+        ''')
+        parser.add_argument('gen', type=str, help='The name of the generator.')
+        parser.add_argument('name', type=str, help='The name of the configuration.', default='', nargs='?')
+
+        args = parser.parse_args(argv)
+
+        project = Project()
+        project.delete_configuration(args.gen, args.name)
+        project.save()
 
     def list(self, argv):
         project = Project()
@@ -70,17 +98,20 @@ The available hlgen commands are:
     def create_configuration(self, argv):
         parser = argparse.ArgumentParser(
             description='Create a new Halide generator configuration',
-            usage='''hlgen create configuration <gen> <name> [<generator-params>]
+            usage='''hlgen create configuration <gen> <name> [<params>]
 
-The new configuration will be compiled as <gen>__<name>.{a,h,so,etc.}
+The new configuration will be compiled as <gen>__<name>.{a,h,so,etc.}. To restore
+a default configuration after deleting it either omit <name> or write '(default)'
 ''')
         parser.add_argument('gen', type=str, help='The name of the generator.')
-        parser.add_argument('name', type=str, help='The name of the configuration.')
+        parser.add_argument('name', type=str, help='The name of the configuration.', default='', nargs='?')
+        parser.add_argument('params', type=str,
+                            help='The build parameters passed to the generator.', nargs=argparse.REMAINDER)
 
-        args, generator_params = parser.parse_known_args(argv)
+        args = parser.parse_args(argv)
 
         project = Project()
-        project.create_configuration(args.gen, args.name, generator_params)
+        project.create_configuration(args.gen, args.name, args.params)
         project.save()
 
     def create_generator(self, argv):
