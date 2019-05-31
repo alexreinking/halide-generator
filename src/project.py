@@ -85,6 +85,17 @@ class Project(object):
         if self._makefile:
             self._makefile.save()
 
+    def delete_generator(self, name):
+        makefile = self.get_makefile()
+        if not makefile.has_generator(name):
+            raise ValueError(f'no generator named {name}')
+        source_path = self.root / (name + '.gen.cpp')
+        if not source_path.is_file():
+            warn(f'expected file {source_path} not removing')
+        else:
+            source_path.unlink()
+        makefile.delete_generator(name)
+
 
 class BuildConfig(object):
     def __init__(self, generator, config_name, value, *, source=None, lineno=-1):
@@ -269,4 +280,10 @@ class Makefile(object):
         if len(self._index[generator_name]) == 1:
             raise ValueError(f'cannot leave generator unconfigured. use \'delete generator\' to delete a generator.')
         del self._index[generator_name][config_name]
+        self._regenerate()
+
+    def delete_generator(self, name):
+        if name not in self._index:
+            raise ValueError(f'no generator named {name}')
+        del self._index[name]
         self._regenerate()

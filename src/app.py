@@ -31,7 +31,7 @@ The available hlgen commands are:
 
         try:
             getattr(self, args.command)(sys.argv[2:])
-        except ValueError as e:
+        except (ValueError, OSError) as e:
             warn(str(e))
             sys.exit(1)
 
@@ -63,6 +63,29 @@ The available hlgen commands are:
         project = Project()
         project.delete_configuration(args.gen, args.name)
         project.save()
+
+    def delete_generator(self, argv):
+        parser = argparse.ArgumentParser(
+            description='Delete an existing Halide generator',
+            usage='hlgen delete generator [-f/--force] <name>')
+        parser.add_argument('-f', '--force', action='store_true',
+                            help='do not prompt for confirmation before deleting files')
+        parser.add_argument('name', type=str, help='The name of the generator.')
+
+        args = parser.parse_args(argv)
+
+        can_delete = True
+        if not args.force:
+            response = None
+            while response not in ['', 'y', 'yes', 'n', 'no']:
+                print('Alert! this action will delete any associated .gen.cpp files.')
+                response = input('Are you sure you wish to continue? [y/n] ').lower()
+            can_delete = response in ['', 'y', 'yes']
+
+        if can_delete:
+            project = Project()
+            project.delete_generator(args.name)
+            project.save()
 
     def list(self, argv):
         project = Project()
