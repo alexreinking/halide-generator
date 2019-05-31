@@ -56,4 +56,5 @@ This project can use a system-installed Python 3 since it has no additional Pyth
 
 * Python 3.4+
 * A [recent Halide distribution](https://buildbot.halide-lang.org/) or build (`distrib` target) with the environment
-  variable `HALIDE_DISTRIB_PATH` set to the root 
+  variable `HALIDE_DISTRIB_PATH` set to the root. You can also install Halide to `/opt/halide` if you don't want to set
+  an environment variable.
