@@ -43,6 +43,15 @@ supported by GCC and Clang.
 
 **TODO** add a way of specifying additional headers to include in the PCH
 
+## Installation
+
+Just clone the repository to some location (maybe `~/bin`) and add it to your path. For example, you could add the
+following line to your `~/.profile` or `~/.bashrc`:
+
+    export PATH="$PATH:$HOME/bin/hlgen"
+
+This project can use a system-installed Python 3 since it has no additional Python dependencies.
+
 ## Dependencies
 
 * Python 3.4+
