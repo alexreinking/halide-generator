@@ -47,23 +47,6 @@ The available hlgen commands are:
 
         getattr(self, method)(argv[1:])
 
-    def delete_configuration(self, argv):
-        parser = argparse.ArgumentParser(
-            description='Delete an existing Halide generator configuration',
-            usage='''hlgen delete configuration <gen> [<name>]
-
-        Recommended to run `make clean` before running this command. To remove
-        the default configuration, either omit <name> or write '(default)'.
-        ''')
-        parser.add_argument('gen', type=str, help='The name of the generator.')
-        parser.add_argument('name', type=str, help='The name of the configuration.', default='', nargs='?')
-
-        args = parser.parse_args(argv)
-
-        project = Project()
-        project.delete_configuration(args.gen, args.name)
-        project.save()
-
     def delete_generator(self, argv):
         parser = argparse.ArgumentParser(
             description='Delete an existing Halide generator',
@@ -86,6 +69,23 @@ The available hlgen commands are:
             project = Project()
             project.delete_generator(args.name)
             project.save()
+
+    def delete_configuration(self, argv):
+        parser = argparse.ArgumentParser(
+            description='Delete an existing Halide generator configuration',
+            usage='''hlgen delete configuration <gen> [<name>]
+
+        Recommended to run `make clean` before running this command. To remove
+        the default configuration, either omit <name> or write '(default)'.
+        ''')
+        parser.add_argument('gen', type=str, help='The name of the generator.')
+        parser.add_argument('name', type=str, help='The name of the configuration.', default='', nargs='?')
+
+        args = parser.parse_args(argv)
+
+        project = Project()
+        project.delete_configuration(args.gen, args.name)
+        project.save()
 
     def list(self, argv):
         project = Project()
@@ -110,13 +110,44 @@ The available hlgen commands are:
         parser = argparse.ArgumentParser(
             description='Create a new Halide project, generator, or configuration',
             usage='hlgen create <item_type> [<args>]')
-        parser.add_argument('item_type', type=str, choices=['project', 'generator', 'configuration'],
-                            help='what kind of item to create')
-
+        parser.add_argument('item_type', type=str,
+                            help='what kind of item to create. One of: [proj]ect, [gen]erator, or [conf]iguration')
         args = parser.parse_args(argv[:1])
-        method = f'create_{args.item_type}'
 
+        item_type = {'project': 'project', 'proj': 'project',
+                     'generator': 'generator', 'gen': 'generator',
+                     'configuration': 'configuration', 'conf': 'configuration'}.get(args.item_type)
+
+        if not item_type:
+            raise ValueError(f'invalid item type {args.item_type}')
+
+        method = f'create_{item_type}'
         getattr(self, method)(argv[1:])
+
+    def create_project(self, argv):
+        parser = argparse.ArgumentParser(
+            description='Create a new Halide project',
+            usage='hlgen create project <name>')
+        parser.add_argument('name', type=str,
+                            help='The name of the project. This will also be the name of the directory created.')
+
+        args = parser.parse_args(argv)
+
+        project = Project.create_new(args.name)
+        project.save()
+
+    def create_generator(self, argv):
+        parser = argparse.ArgumentParser(
+            description='Create a new Halide generator',
+            usage='hlgen create generator <name>')
+        parser.add_argument('name', type=str,
+                            help='The name of the generator. This will also be the name of the source file created.')
+
+        args = parser.parse_args(argv)
+
+        project = Project()
+        project.create_generator(args.name)
+        project.save()
 
     def create_configuration(self, argv):
         parser = argparse.ArgumentParser(
@@ -135,29 +166,4 @@ a default configuration after deleting it either omit <name> or write '(default)
 
         project = Project()
         project.create_configuration(args.gen, args.name, args.params)
-        project.save()
-
-    def create_generator(self, argv):
-        parser = argparse.ArgumentParser(
-            description='Create a new Halide generator',
-            usage='hlgen create generator <name>')
-        parser.add_argument('name', type=str,
-                            help='The name of the generator. This will also be the name of the source file created.')
-
-        args = parser.parse_args(argv)
-
-        project = Project()
-        project.create_generator(args.name)
-        project.save()
-
-    def create_project(self, argv):
-        parser = argparse.ArgumentParser(
-            description='Create a new Halide project',
-            usage='hlgen create project <name>')
-        parser.add_argument('name', type=str,
-                            help='The name of the project. This will also be the name of the directory created.')
-
-        args = parser.parse_args(argv)
-
-        project = Project.create_new(args.name)
         project.save()
