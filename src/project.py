@@ -7,6 +7,16 @@ from typing import Union, Dict, Optional, List
 from src.formatting import expand_template
 from src.logging import warn
 
+
+def interpose(it, x):
+    past_start = False
+    for i in it:
+        if past_start:
+            yield x
+        yield i
+        past_start = True
+
+
 TOOL_DIR = Path(os.path.dirname(os.path.realpath(os.path.join(__file__, '..'))))
 
 
@@ -21,10 +31,6 @@ class Project(object):
         self.root = root
         self._makefile = None
 
-    def get_configurations(self):
-        makefile = self.get_makefile()
-        return makefile.get_generators()
-
     @staticmethod
     def create_new(project_name):
         if os.path.isdir(project_name):
@@ -38,10 +44,7 @@ class Project(object):
 
             os.makedirs(project.root / relative, exist_ok=True)
             for file_name in files:
-                project._copy_from_skeleton(
-                    relative / file_name,
-                    {'_HLGEN_BASE': TOOL_DIR,
-                     'NAME': project_name})
+                project._copy_from_skeleton(relative / file_name, {'NAME': project_name})
         return project
 
     def get_makefile(self):
@@ -49,22 +52,17 @@ class Project(object):
             self._makefile = Makefile(self)
         return self._makefile
 
-    def _copy_from_skeleton(self, relative, env):
-        skel_file = TOOL_DIR / 'skeleton' / relative
-        proj_file = self.root / relative
+    def get_configurations(self):
+        makefile = self.get_makefile()
+        return makefile.get_generators()
 
-        with open(skel_file, 'r') as f:
-            content = expand_template(f.read(), env)
-
-        proj_file = proj_file.with_name(expand_template(proj_file.name, env))
-        with open(proj_file, 'w') as f:
-            f.write(content)
+    def save(self):
+        if self._makefile:
+            self._makefile.save()
 
     def create_generator(self, generator_name):
         makefile = self.get_makefile()
-        self._copy_from_skeleton(
-            Path('${NAME}.gen.cpp'),
-            {'_HLGEN_BASE': TOOL_DIR, 'NAME': generator_name})
+        self._copy_from_skeleton(Path('${NAME}.gen.cpp'), {'NAME': generator_name})
         makefile.add_generator(generator_name)
 
     def create_configuration(self, generator_name, config_name, params):
@@ -81,10 +79,6 @@ class Project(object):
             generator_name,
             config_name)
 
-    def save(self):
-        if self._makefile:
-            self._makefile.save()
-
     def delete_generator(self, name):
         makefile = self.get_makefile()
         if not makefile.has_generator(name):
@@ -96,8 +90,20 @@ class Project(object):
             source_path.unlink()
         makefile.delete_generator(name)
 
+    def _copy_from_skeleton(self, relative, env):
+        skel_file = TOOL_DIR / 'skeleton' / relative
+        proj_file = self.root / relative
+
+        with open(skel_file, 'r') as f:
+            content = expand_template(f.read(), env)
+
+        proj_file = proj_file.with_name(expand_template(proj_file.name, env))
+        with open(proj_file, 'w') as f:
+            f.write(content)
+
 
 class BuildConfig(object):
+
     def __init__(self, generator, config_name, value, *, source=None, lineno=-1):
         self.generator = generator or ''
         self.config_name = config_name or ''
@@ -143,13 +149,60 @@ class Makefile(object):
         self.invalid_configurations = []
         self._regenerate()
 
+    def save(self):
+        with open(str(self.path), 'w') as f:
+            f.writelines(self._lines)
+
+    def has_generator(self, generator_name):
+        return generator_name in self._index
+
     def get_generators(self):
         return self.current_configurations, self.invalid_configurations
+
+    def add_generator(self, generator_name):
+        if self.has_generator(generator_name):
+            raise ValueError(f'generator {generator_name} already exists!')
+        self._index[generator_name] = {}
+        self._index[generator_name][''] = BuildConfig(generator_name, '', '')
+
+    def add_configuration(self, generator_name, config_name, params):
+        if generator_name not in self._index:
+            raise ValueError(f'no generator named {generator_name}')
+        if config_name == '(default)':
+            config_name = ''
+        if config_name in self._index[generator_name]:
+            raise ValueError(
+                f'configuration {config_name or "(default)"} already exists. use update configuration instead')
+        config = BuildConfig(generator_name, config_name, params)
+        self.current_configurations.append(config)
+        self._index[generator_name][config_name] = config
+        self._regenerate()
+
+    def update_configuration(self, generator_name, config_name, new_params):
+        pass
+
+    def delete_generator(self, name):
+        if name not in self._index:
+            raise ValueError(f'no generator named {name}')
+        del self._index[name]
+        self._regenerate()
+
+    def delete_configuration(self, generator_name, config_name):
+        if generator_name not in self._index:
+            raise ValueError(f'no generator named {generator_name}')
+        if config_name == '(default)':
+            config_name = ''
+        if config_name not in self._index[generator_name]:
+            raise ValueError(f'no configuration named {config_name or "(default)"} for generator {generator_name}')
+        if len(self._index[generator_name]) == 1:
+            raise ValueError(f'cannot leave generator unconfigured. use \'delete generator\' to delete a generator.')
+        del self._index[generator_name][config_name]
+        self._regenerate()
 
     def _regenerate(self):
         cfgs = self._linearize_index()
         new_cfg_lines = [str(x).rstrip() + '\n'
-                         for grp in self.interpose(cfgs, [''])
+                         for grp in interpose(cfgs, [''])
                          for x in grp]
 
         if self.cfg_start == self.cfg_end:
@@ -226,40 +279,6 @@ class Makefile(object):
         self.current_configurations = configurations
         self.invalid_configurations = invalid_configurations
 
-    def has_generator(self, name):
-        return name in self._index
-
-    def add_generator(self, name):
-        if self.has_generator(name):
-            raise ValueError(f'generator {name} already exists!')
-        self._index[name] = {}
-        self._index[name][''] = BuildConfig(name, '', '')
-
-    def save(self):
-        with open(str(self.path), 'w') as f:
-            f.writelines(self._lines)
-
-    def add_configuration(self, gen, name, params):
-        if gen not in self._index:
-            raise ValueError(f'no generator named {gen}')
-        if name == '(default)':
-            name = ''
-        if name in self._index[gen]:
-            raise ValueError(f'configuration {name or "(default)"} already exists. use update configuration instead')
-        config = BuildConfig(gen, name, params)
-        self.current_configurations.append(config)
-        self._index[gen][name] = config
-        self._regenerate()
-
-    @staticmethod
-    def interpose(it, x):
-        past_start = False
-        for i in it:
-            if past_start:
-                yield x
-            yield i
-            past_start = True
-
     def _linearize_index(self) -> List[List[BuildConfig]]:
         cfgs = []
         for gen, gen_cfgs in self._index.items():
@@ -269,21 +288,3 @@ class Makefile(object):
             cfgs.append(list(sorted(gen_cfgs.values(), key=lambda cfg: cfg.config_name)))
         cfgs.sort(key=lambda grp: grp[0].generator)
         return cfgs
-
-    def delete_configuration(self, generator_name, config_name):
-        if generator_name not in self._index:
-            raise ValueError(f'no generator named {generator_name}')
-        if config_name == '(default)':
-            config_name = ''
-        if config_name not in self._index[generator_name]:
-            raise ValueError(f'no configuration named {config_name or "(default)"} for generator {generator_name}')
-        if len(self._index[generator_name]) == 1:
-            raise ValueError(f'cannot leave generator unconfigured. use \'delete generator\' to delete a generator.')
-        del self._index[generator_name][config_name]
-        self._regenerate()
-
-    def delete_generator(self, name):
-        if name not in self._index:
-            raise ValueError(f'no generator named {name}')
-        del self._index[name]
-        self._regenerate()
