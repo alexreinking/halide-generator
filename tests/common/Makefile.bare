@@ -1,0 +1,7 @@
+CXX=g++
+CXXFLAGS=-std=c++14
+
+.PHONY: all
+all: allcfgs
+
+include ./support/Makefile
