@@ -16,7 +16,7 @@ class TestProject(TestCase):
         self.test_root.mkdir(parents=True, exist_ok=False)
         os.chdir(self.test_root)
 
-    def test_simple_project(self):
+    def test_create_simple_project(self):
         project = Project.create_new('simple')
         self.assertIsNotNone(project)
         cfgs, invalid = project.get_configurations()
