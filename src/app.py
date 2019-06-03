@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from src.formatting import Table
-from src.logging import warn
+from src.logging import error
 from src.project import Project
 
 TOOL_DIR = Path(os.path.dirname(os.path.realpath(os.path.join(__file__, '..'))))
@@ -32,7 +32,7 @@ The available hlgen commands are:
         try:
             getattr(self, args.command)(sys.argv[2:])
         except (ValueError, OSError) as e:
-            warn(str(e))
+            error(str(e))
             sys.exit(1)
 
     def delete(self, argv):
@@ -78,19 +78,19 @@ The available hlgen commands are:
         Recommended to run `make clean` before running this command. To remove
         the default configuration, either omit <name> or write '(default)'.
         ''')
-        parser.add_argument('gen', type=str, help='The name of the generator.')
-        parser.add_argument('name', type=str, help='The name of the configuration.', default='', nargs='?')
+        parser.add_argument('gen', help='The name of the generator.')
+        parser.add_argument('name', help='The name of the configuration.', default=None, nargs='?')
 
         args = parser.parse_args(argv)
 
         project = Project()
-        project.delete_configuration(args.gen, args.name)
+        project.delete_configuration(args.gen, self._normalize_config_name(args.name))
         project.save()
 
     def list(self, argv):
         project = Project()
         configurations, invalid = project.get_configurations()
-        configurations.sort(key=lambda cfg: (cfg.generator, cfg.config_name))
+        configurations.sort(key=lambda cfg: (cfg.generator, cfg.config_name or ''))
 
         table = Table()
         table.set_headers('Generator', 'Configuration', 'Parameters')
@@ -155,7 +155,8 @@ The available hlgen commands are:
             usage='''hlgen create configuration <gen> <name> [<params>]
 
 The new configuration will be compiled as <gen>__<name>.{a,h,so,etc.}. To restore
-a default configuration after deleting it either omit <name> or write '(default)'
+a default configuration after deleting it either omit <name> by putting '' in its
+place or write '(default)'
 ''')
         parser.add_argument('gen', type=str, help='The name of the generator.')
         parser.add_argument('name', type=str, help='The name of the configuration.', default='', nargs='?')
@@ -165,5 +166,11 @@ a default configuration after deleting it either omit <name> or write '(default)
         args = parser.parse_args(argv)
 
         project = Project()
-        project.create_configuration(args.gen, args.name, args.params)
+        project.create_configuration(args.gen, self._normalize_config_name(args.name), args.params)
         project.save()
+
+    @staticmethod
+    def _normalize_config_name(config_name):
+        if config_name is None or config_name == '' or config_name == '(default)':
+            return None
+        return config_name

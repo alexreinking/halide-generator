@@ -2,9 +2,52 @@ import glob
 import os
 import re
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, Optional
 
 from src.logging import warn
+
+
+def interpose(it, x):
+    past_start = False
+    for i in it:
+        if past_start:
+            yield x
+        yield i
+        past_start = True
+
+
+class BuildConfig(object):
+    _cfg_line_re = re.compile(r'^CFG__(\w+?)(?:__(\w*))?[ \t]*=[ \t]*([^\s].*?)?[ \t]*$')
+
+    def __init__(self, generator: str, config_name: Optional[str] = None, value: Optional[str] = None, *, source=None):
+        if not generator:
+            raise ValueError('cannot define nameless generator!')
+        if config_name == '':
+            raise ValueError('config_name cannot be empty string!')
+        self.generator = generator
+        self.config_name = config_name
+        self.params = (value or '').strip()
+        self.source = source
+
+    @staticmethod
+    def from_makefile(source):
+        # Is there a way to do this without lazy groups?
+        m = BuildConfig._cfg_line_re.match(str(source))
+        if not m:
+            return None
+        return BuildConfig(*m.group(1, 2, 3), source=source)
+
+    def __repr__(self):
+        return self._render()
+
+    def __str__(self):
+        return self._render().rstrip() + '\n'
+
+    def _render(self):
+        if self.source:
+            return self.source
+        suffix = '' if not self.config_name else f'__{self.config_name}'
+        return f'CFG__{self.generator}{suffix} = {self.params}'
 
 
 class Makefile(object):
@@ -38,7 +81,7 @@ class Makefile(object):
         if self.has_generator(generator_name):
             raise ValueError(f'generator {generator_name} already exists!')
         self._index[generator_name] = {}
-        self._index[generator_name][''] = BuildConfig(generator_name, '', '')
+        self._index[generator_name][''] = BuildConfig(generator_name, None, None)
 
     def add_configuration(self, generator_name, config_name, params):
         if generator_name not in self._index:
@@ -66,9 +109,11 @@ class Makefile(object):
         if generator_name not in self._index:
             raise ValueError(f'no generator named {generator_name}')
         if config_name == '(default)':
-            config_name = ''
+            config_name = None
         if config_name not in self._index[generator_name]:
-            raise ValueError(f'no configuration named {config_name or "(default)"} for generator {generator_name}')
+            print(repr(config_name))
+            print(self._index[generator_name])
+            raise ValueError(f'no configuration named {config_name} for generator {generator_name}')
         if len(self._index[generator_name]) == 1:
             raise ValueError(f'cannot leave generator unconfigured. use \'delete generator\' to delete a generator.')
         del self._index[generator_name][config_name]
@@ -102,7 +147,7 @@ class Makefile(object):
 
         # Create table for all the valid generators
         for gen in glob.glob(str(self.project_root / '*.gen.cpp')):
-            gen = os.path.basename(gen).rstrip('.gen.cpp')
+            gen = os.path.basename(gen)[:-len('.gen.cpp')]
             generator2configs[gen] = {}
 
         last_cfg = num_lines
@@ -120,7 +165,7 @@ class Makefile(object):
             if saw_generator_comment and after_comment == num_lines and not line.strip().startswith('#'):
                 after_comment = line_idx
 
-            config = BuildConfig.from_makefile(line, line_idx)
+            config = BuildConfig.from_makefile(line)
             if cfg_start == num_lines and config:
                 cfg_start = line_idx
 
@@ -144,8 +189,9 @@ class Makefile(object):
         # If any generators didn't appear in the makefile, they get default configurations inferred
         for gen in generator2configs:
             if not generator2configs[gen]:
-                generator2configs[gen][''] = BuildConfig(gen, '', '')
-                configurations.append(BuildConfig(gen, '', ''))
+                default_config = BuildConfig(gen, None, None)
+                generator2configs[gen][None] = default_config
+                configurations.append(default_config)
 
         self._index = generator2configs
         self.after_comment = after_comment
@@ -154,50 +200,12 @@ class Makefile(object):
         self.current_configurations = configurations
         self.invalid_configurations = invalid_configurations
 
-    def _linearize_index(self) -> List[List[BuildConfig]]:
+    def _linearize_index(self):
         cfgs = []
         for gen, gen_cfgs in self._index.items():
             # when the only entry is the default one, don't put it in the makefile
             if len(gen_cfgs) == 1 and '' in gen_cfgs and not gen_cfgs[''].params:
                 continue
-            cfgs.append(list(sorted(gen_cfgs.values(), key=lambda cfg: cfg.config_name)))
+            cfgs.append(list(sorted(gen_cfgs.values(), key=lambda cfg: cfg.config_name or '')))
         cfgs.sort(key=lambda grp: grp[0].generator)
         return cfgs
-
-
-def interpose(it, x):
-    past_start = False
-    for i in it:
-        if past_start:
-            yield x
-        yield i
-        past_start = True
-
-
-class BuildConfig(object):
-    def __init__(self, generator, config_name, value, *, source=None, lineno=-1):
-        self.generator = generator or ''
-        self.config_name = config_name or ''
-        self.params = value or ''
-        self.source = source
-        self.lineno = lineno
-
-    @staticmethod
-    def from_makefile(source, lineno):
-        # Is there a way to do this without lazy groups?
-        m = re.match(r'^CFG__(\w+?)(?:\s|__(\w+)?).*?=\s*(.*?)\s*$', source)
-        if not m:
-            return None
-        return BuildConfig(*m.group(1, 2, 3), source=source, lineno=lineno)
-
-    def __repr__(self):
-        return str(self)
-
-    def __str__(self):
-        return self._render().rstrip() + '\n'
-
-    def _render(self):
-        if self.source:
-            return self.source
-        suffix = '' if not self.config_name else f'__{self.config_name}'
-        return f'CFG__{self.generator}{suffix} = {self.params}'
