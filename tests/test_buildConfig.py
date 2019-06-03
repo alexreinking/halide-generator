@@ -6,7 +6,7 @@ from src.makefile import BuildConfig
 
 class TestBuildConfig(TestCase):
     def test_from_makefile(self):
-        generator_names = ['foo', '_foo', 'f_oo']
+        generator_names = ['foo', 'f_oo']
         config_names = [None, 'bar', '_bar', 'bar_', '_bar_', '__bar', 'bar__', '__bar__']
         values = ['', 'baz', 'baz test', '   fooo    ']
         spacing = [0, 1, 10]
