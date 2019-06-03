@@ -69,17 +69,23 @@ $(HLGEN_PCH): $(HALIDE_DISTRIB_PATH)/include/Halide.h | $(HLGEN_KERNEL_PATH)
 	$(file >$@,#include "$<")
 	$(CXX) $@ -o $@.gch -I "$(HALIDE_DISTRIB_PATH)/include" $(HLGEN_CXXFLAGS)
 
-.PRECIOUS: $(HLGEN_EXE)
-$(HLGEN_EXE): $(wildcard *.gen.cpp) $(HLGEN_DEPS)
-	$(CXX) -rdynamic $(filter-out %.h, $^) -include $(HLGEN_PCH) -o $@ -I "$(HALIDE_DISTRIB_PATH)/include" $(HLGEN_CXXFLAGS) $(HLGEN_LIBS)
 
+.PRECIOUS: $(HLGEN_KERNEL_PATH)/%.gen.o
+$(HLGEN_KERNEL_PATH)/%.gen.o: %.gen.cpp $(HLGEN_PCH)
+	$(CXX) -rdynamic -c $< -include $(HLGEN_PCH) -o $@ -I $(HALIDE_DISTRIB_PATH)/include $(HLGEN_CXXFLAGS) $(HLGEN_LIBS)
+
+.PRECIOUS: $(HLGEN_EXE)
+$(HLGEN_EXE): $(HLGEN_GENS:%=$(HLGEN_KERNEL_PATH)/%.gen.o) $(HLGEN_DEPS)
+	$(CXX) -rdynamic $(filter-out %.h, $^) -include $(HLGEN_PCH) -o $@ -I $(HALIDE_DISTRIB_PATH)/include $(HLGEN_CXXFLAGS) $(HLGEN_LIBS)
+
+.SECONDEXPANSION:
 .PRECIOUS: $(HLGEN_KERNEL_PATH)/%.a $(HLGEN_KERNEL_PATH)/%.h $(HLGEN_KERNEL_PATH)/%.stmt $(HLGEN_KERNEL_PATH)/%.html $(HLGEN_KERNEL_PATH)/%.registration.cpp
 $(HLGEN_KERNEL_PATH)/%.a \
 $(HLGEN_KERNEL_PATH)/%.h \
 $(HLGEN_KERNEL_PATH)/%.stmt \
 $(HLGEN_KERNEL_PATH)/%.html \
-$(HLGEN_KERNEL_PATH)/%.registration.cpp: $(HLGEN_EXE) | $(HLGEN_KERNEL_PATH)
-	./$< -g $(call get_gen_name, $*) -e static_library,h,stmt,html,registration -n $* -o $(HLGEN_KERNEL_PATH) target=$(HL_TARGET) $(CFG__$*)
+$(HLGEN_KERNEL_PATH)/%.registration.cpp: $$(call get_gen_name, $$*).gen.cpp | $(HLGEN_EXE) $(HLGEN_KERNEL_PATH)
+	./$(HLGEN_EXE) -g $(call get_gen_name, $*) -e static_library,h,stmt,html,registration -n $* -o $(HLGEN_KERNEL_PATH) target=$(HL_TARGET) $(CFG__$*)
 
 ###
 # Standalone generator targets
