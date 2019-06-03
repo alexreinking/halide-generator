@@ -24,7 +24,7 @@ Feel free to contribute, though I'm rapidly bringing this to alpha.
 
 ## Quick demo
 
-Here's the quickest way to see how `hlgen` works: 
+Here's the quickest way to see how `hl` works: 
 
     $ hl create project my_project
     $ cd my_project
