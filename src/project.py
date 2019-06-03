@@ -18,6 +18,7 @@ class Project(object):
         if not root.is_dir():
             raise ValueError(f'project directory {root} does not exist')
         self.root = root
+        self.name = root.name
         self._makefile = None
 
     @staticmethod
@@ -55,12 +56,10 @@ class Project(object):
         makefile.add_generator(generator_name)
 
     def create_configuration(self, generator_name, config_name, params):
+        if isinstance(params, list):
+            params = ' '.join(params)
         makefile = self.get_makefile()
-        makefile.add_configuration(
-            generator_name,
-            config_name,
-            ' '.join(params)
-        )
+        makefile.add_configuration(generator_name, config_name, params)
 
     def delete_configuration(self, generator_name, config_name):
         makefile = self.get_makefile()

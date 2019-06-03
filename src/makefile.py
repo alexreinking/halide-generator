@@ -21,12 +21,18 @@ class BuildConfig(object):
 
     def __init__(self, generator: str, config_name: Optional[str] = None, value: Optional[str] = None, *, source=None):
         if not generator:
-            raise ValueError('cannot define nameless generator!')
+            raise ValueError('cannot define nameless generator')
+        if generator.endswith('_') or generator.startswith('_'):
+            raise ValueError('generator names cannot start or end with underscore (_) characters')
         if config_name == '':
-            raise ValueError('config_name cannot be empty string!')
+            raise ValueError('config_name cannot be empty string')
+
+        # Fundamental details for a build configuration
         self.generator = generator
         self.config_name = config_name
         self.params = (value or '').strip()
+
+        # The MakefileLine that created this config.
         self.source = source
 
     @staticmethod
@@ -36,6 +42,20 @@ class BuildConfig(object):
         if not m:
             return None
         return BuildConfig(*m.group(1, 2, 3), source=source)
+
+    def __eq__(self, other):
+        if isinstance(other, BuildConfig):
+            return (self.generator == other.generator and
+                    self.config_name == other.config_name and
+                    self.params == other.params)
+        return NotImplemented
+
+    def __ne__(self, other):
+        eq = self.__eq__(other)
+        return eq if eq is NotImplemented else not eq
+
+    def __hash__(self):
+        return hash((self.generator, self.config_name, self.params))
 
     def __repr__(self):
         return self._render()
@@ -82,6 +102,7 @@ class Makefile(object):
             raise ValueError(f'generator {generator_name} already exists!')
         self._index[generator_name] = {}
         self._index[generator_name][''] = BuildConfig(generator_name, None, None)
+        self._regenerate()
 
     def add_configuration(self, generator_name, config_name, params):
         if generator_name not in self._index:
