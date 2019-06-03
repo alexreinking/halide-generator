@@ -7,15 +7,6 @@ from typing import Dict, Optional
 from src.logging import warn
 
 
-def interpose(it, x):
-    past_start = False
-    for i in it:
-        if past_start:
-            yield x
-        yield i
-        past_start = True
-
-
 class BuildConfig(object):
     _cfg_line_re = re.compile(r'^CFG__(\w+?)(?:__(\w*))?[ \t]*=[ \t]*([^\s].*?)?[ \t]*$')
 
@@ -142,9 +133,7 @@ class Makefile(object):
 
     def _regenerate(self):
         cfgs = self._linearize_index()
-        new_cfg_lines = [str(x).rstrip() + '\n'
-                         for grp in interpose(cfgs, [''])
-                         for x in grp]
+        new_cfg_lines = [str(x).rstrip() + '\n' for x in cfgs]
 
         if self.cfg_start == self.cfg_end:
             prefix = self._lines[:self.after_comment]
@@ -225,8 +214,7 @@ class Makefile(object):
         cfgs = []
         for gen, gen_cfgs in self._index.items():
             # when the only entry is the default one, don't put it in the makefile
-            if len(gen_cfgs) == 1 and '' in gen_cfgs and not gen_cfgs[''].params:
+            if len(gen_cfgs) == 1 and None in gen_cfgs and not gen_cfgs[None].params:
                 continue
-            cfgs.append(list(sorted(gen_cfgs.values(), key=lambda cfg: cfg.config_name or '')))
-        cfgs.sort(key=lambda grp: grp[0].generator)
+            cfgs.extend(sorted(gen_cfgs.values(), key=lambda cfg: cfg.config_name or ''))
         return cfgs
