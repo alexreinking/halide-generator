@@ -53,12 +53,22 @@ allcfgs: $(addprefix run_, $(HLGEN_CFGS))
 ###
 
 # TODO: detect these
-HLGEN_SHARED_LIB_EXT = so
+ifeq ($(OS),Windows_NT)
+	$(error "Windows builds not yet supported")
+else
+HLGEN_OS := $(shell uname -s)
+ifeq ($(HLGEN_OS),Linux)
+HLGEN_SHARED_LIB_EXT := so
+endif
+ifeq ($(HLGEN_OS),Darwin)
+HLGEN_SHARED_LIB_EXT := dylib
+endif
+endif
 HLGEN_PCH_EXT = gch
 
 HLGEN_PCH = $(HLGEN_KERNEL_PATH)/stdafx.h
 
-HLGEN_DEPS = $(HALIDE_DISTRIB_PATH)/bin/libHalide.so $(HLGEN_PCH) $(HALIDE_DISTRIB_PATH)/tools/GenGen.cpp
+HLGEN_DEPS = $(HALIDE_DISTRIB_PATH)/bin/libHalide.$(HLGEN_SHARED_LIB_EXT) $(HLGEN_PCH) $(HALIDE_DISTRIB_PATH)/tools/GenGen.cpp
 HLGEN_CXXFLAGS = $(CXXFLAGS) -Og -ggdb3 -fno-rtti
 HLGEN_LIBS = -L "$(HALIDE_DISTRIB_PATH)/lib" -lHalide -lz -lpthread -ldl
 
@@ -66,7 +76,8 @@ $(HLGEN_KERNEL_PATH): ; mkdir $@
 
 .PRECIOUS: $(HLGEN_PCH)
 $(HLGEN_PCH): $(HALIDE_DISTRIB_PATH)/include/Halide.h | $(HLGEN_KERNEL_PATH)
-	$(file >$@,#include "$<")
+#	$(file >$@,#include "$<")
+	echo '#include "$<"' > "$@"
 	$(CXX) $@ -o $@.gch -I "$(HALIDE_DISTRIB_PATH)/include" $(HLGEN_CXXFLAGS)
 
 
