@@ -5,6 +5,9 @@
 CXX=g++
 CXXFLAGS=-std=c++14
 
+HALIDE_DISTRIB_PATH ?= /opt/halide
+HL_TARGET ?= host
+
 .PHONY: all
 all: allcfgs
 

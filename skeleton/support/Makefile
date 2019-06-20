@@ -1,9 +1,8 @@
+include $(HALIDE_DISTRIB_PATH)/halide_config.make
+
 ###
 # Halide configuration options
 ###
-
-HALIDE_DISTRIB_PATH ?= /opt/halide
-HL_TARGET ?= host
 
 HLGEN_KERNEL_PATH ?= ./kernels
 
@@ -59,14 +58,16 @@ else
 HLGEN_OS := $(shell uname -s)
 ifeq ($(HLGEN_OS),Linux)
 HLGEN_SHARED_LIB_EXT := so
+USE_EXPORT_DYNAMIC := -rdynamic
 endif
 ifeq ($(HLGEN_OS),Darwin)
 HLGEN_SHARED_LIB_EXT := dylib
+USE_EXPORT_DYNAMIC := -undefined dynamic_lookup
 endif
 endif
 HLGEN_PCH_EXT = gch
 
-HLGEN_PCH = $(HLGEN_KERNEL_PATH)/stdafx.h
+HLGEN_PCH = $(HLGEN_KERNEL_PATH)/stdafx.hpp
 
 HLGEN_DEPS = $(HALIDE_DISTRIB_PATH)/bin/libHalide.$(HLGEN_SHARED_LIB_EXT) $(HLGEN_PCH) $(HALIDE_DISTRIB_PATH)/tools/GenGen.cpp
 HLGEN_CXXFLAGS = $(CXXFLAGS) -Og -ggdb3 -fno-rtti
@@ -83,11 +84,13 @@ $(HLGEN_PCH): $(HALIDE_DISTRIB_PATH)/include/Halide.h | $(HLGEN_KERNEL_PATH)
 
 .PRECIOUS: $(HLGEN_KERNEL_PATH)/%.gen.o
 $(HLGEN_KERNEL_PATH)/%.gen.o: %.gen.cpp $(HLGEN_PCH)
-	$(CXX) -rdynamic -c $< -include $(HLGEN_PCH) -o $@ -I $(HALIDE_DISTRIB_PATH)/include $(HLGEN_CXXFLAGS) $(HLGEN_LIBS)
+	$(CXX) -c $< -include $(HLGEN_PCH) -o $@ -I $(HALIDE_DISTRIB_PATH)/include $(HLGEN_CXXFLAGS)
+
+HLGEN_EXE_FILTERS = %.hpp %.h %.$(HLGEN_SHARED_LIB_EXT)
 
 .PRECIOUS: $(HLGEN_EXE)
 $(HLGEN_EXE): $(HLGEN_GENS:%=$(HLGEN_KERNEL_PATH)/%.gen.o) $(HLGEN_DEPS)
-	$(CXX) -rdynamic $(filter-out %.h, $^) -include $(HLGEN_PCH) -o $@ -I $(HALIDE_DISTRIB_PATH)/include $(HLGEN_CXXFLAGS) $(HLGEN_LIBS)
+	$(CXX) $(USE_EXPORT_DYNAMIC) $(filter-out $(HLGEN_EXE_FILTERS), $^) -include $(HLGEN_PCH) -o $@ -I $(HALIDE_DISTRIB_PATH)/include $(HLGEN_CXXFLAGS) $(HLGEN_LIBS)
 
 .SECONDEXPANSION:
 .PRECIOUS: $(HLGEN_KERNEL_PATH)/%.a $(HLGEN_KERNEL_PATH)/%.h $(HLGEN_KERNEL_PATH)/%.stmt $(HLGEN_KERNEL_PATH)/%.html $(HLGEN_KERNEL_PATH)/%.registration.cpp
@@ -112,10 +115,10 @@ generate_%: $(HLGEN_KERNEL_PATH)/%.a _hl_generate_target ;
 ###
 
 $(HLGEN_KERNEL_PATH)/RunGenMain.o: $(HALIDE_DISTRIB_PATH)/tools/RunGenMain.cpp $(HLGEN_PCH)
-	$(CXX) -rdynamic -c $< -include $(HLGEN_PCH) -o $@ -I "$(HALIDE_DISTRIB_PATH)/include" $(HLGEN_CXXFLAGS) $(HLGEN_LIBS) -ljpeg -lpng
+	$(CXX) -c $< -include $(HLGEN_PCH) -o $@ -I "$(HALIDE_DISTRIB_PATH)/include" $(HLGEN_CXXFLAGS)
 
 run_%: $(HLGEN_KERNEL_PATH)/%.registration.cpp $(HLGEN_KERNEL_PATH)/RunGenMain.o $(HLGEN_KERNEL_PATH)/%.a $(HLGEN_PCH)
-	$(CXX) -rdynamic $(filter-out %.h, $^) -include $(HLGEN_PCH) -o $@ -I "$(HALIDE_DISTRIB_PATH)/include" $(HLGEN_CXXFLAGS) $(HLGEN_LIBS) -ljpeg -lpng
+	$(CXX) $(USE_EXPORT_DYNAMIC) $(filter-out $(HLGEN_EXE_FILTERS), $^) -include $(HLGEN_PCH) -o $@ -I "$(HALIDE_DISTRIB_PATH)/include" $(HLGEN_CXXFLAGS) $(HLGEN_LIBS) -ljpeg -lpng
 
 ###
 # Cleanup
@@ -124,4 +127,4 @@ run_%: $(HLGEN_KERNEL_PATH)/%.registration.cpp $(HLGEN_KERNEL_PATH)/RunGenMain.o
 .PHONY: clean
 clean::
 	$(RM) -r $(HLGEN_KERNEL_PATH)
-	$(RM) $(HLGEN_EXE) run_*
+	$(RM) -r $(HLGEN_EXE) run_*
