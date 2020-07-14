@@ -1,3 +1,10 @@
+# Deprecated
+
+I'm leaving this up for posterity, but users looking for a better Halide build experience should just use
+the new CMake build.
+
+---
+
 # hl - a Halide project generator
 
 This is a simple tool for quickly creating Halide projects and generators with
